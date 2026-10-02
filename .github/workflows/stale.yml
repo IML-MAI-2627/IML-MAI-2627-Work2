@@ -1,0 +1,29 @@
+name: Stale PR reminder
+
+on:
+  schedule:
+    - cron: "30 7 * * 1-5"   # 07:30 UTC (09:30 in Spanish summer time)
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # PRs only; issues are left alone
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          days-before-pr-stale: 2
+          days-before-pr-close: -1        # never closed automatically
+          stale-pr-label: stale
+          exempt-draft-pr: true
+          exempt-pr-labels: wip
+          operations-per-run: 50
+          stale-pr-message: >
+            This PR has had no activity for 2 days. Is a review missing, or is something blocking it?
+            Leave a comment to unblock it. It will not be closed automatically.

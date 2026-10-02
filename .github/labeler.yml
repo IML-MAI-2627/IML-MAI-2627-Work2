@@ -1,0 +1,18 @@
+knn:
+  - changed-files:
+      - any-glob-to-any-file: ["src/knn*", "src/distances*", "src/retention*", "src/voting*"]
+reduction:
+  - changed-files:
+      - any-glob-to-any-file: ["src/reduction*"]
+models:
+  - changed-files:
+      - any-glob-to-any-file: ["src/models*", "src/svm*", "src/rf*"]
+stats:
+  - changed-files:
+      - any-glob-to-any-file: ["src/stats*", "src/evaluation*"]
+report:
+  - changed-files:
+      - any-glob-to-any-file: ["report/**"]
+infra:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", "pyproject.toml", "requirements*.txt", ".pre-commit-config.yaml", "README.md"]
