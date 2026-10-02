@@ -1,0 +1,24 @@
+name: Task
+description: A piece of work for the project
+title: "[Task] "
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What to do
+      description: Short description of the work.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know it is done? (tests, outputs, files)
+    validations:
+      required: true
+  - type: input
+    id: depends
+    attributes:
+      label: Depends on
+      description: Issues that must be finished first.
+      placeholder: "#4, #6"

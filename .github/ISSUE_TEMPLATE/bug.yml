@@ -1,0 +1,23 @@
+name: Bug
+description: Something does not work as expected
+title: "[Bug] "
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What did you expect and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Commands, dataset/fold, parameters.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      render: shell
