@@ -21,6 +21,18 @@ pip install -r requirements.txt
 ## Running the experiments
 _TODO: placeholder. Commands will be added once the experiment runner exists._
 
+## EDA
+Figures and a text summary of the preprocessed datasets (class distribution, vowel
+histograms and PCA, splice nucleotide frequencies). Run from the project root:
+
+```bash
+python experiments/eda.py --dataset all --fold 0 --csv
+```
+
+Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vowel` or
+`all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
+changes the output folder.
+
 ## Layout
 - `src/` — source code
 - `tests/` — tests
