@@ -88,6 +88,8 @@ Status: **decided** / **pending**.
   few significant results in the statistical tests, and room for heavy instance reduction without
   losing accuracy. (hypothesis, to be confirmed)
 
+- **splice is imbalanced:** class N is ~52% of the train, which is also the majority-class baseline. (note)
+- **splice: informative positions are concentrated in the middle of the sequence (~27-35);** the rest look close to uniform, so an unweighted distance (HEOM) may be diluted by noisy attributes. (hypothesis)
 ---
 
 ## Pending decisions
