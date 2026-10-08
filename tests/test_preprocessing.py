@@ -166,8 +166,64 @@ def test_undeclared_value_in_test_raises(train, make_data):
     """A nominal value that is not in the header is an error, never a silent code."""
     prep = Preprocessor().fit(train)
     test = make_data(TestMatrix, [[1.0, 5.0, "purple", "S"]], ["no"])
-    with pytest.raises(ValueError, match="purple"):
+    with pytest.raises(ValueError, match="Value 'purple' of 'color' is not declared"):
         prep.transform(test)
+
+
+def test_undeclared_value_in_train_raises(make_data):
+    """Same check on the fit path."""
+    train = make_data(TrainMatrix, [[1.0, 5.0, "red", "S"], [2.0, 5.0, "red", "XL"]], ["no", "yes"])
+    with pytest.raises(ValueError, match="Value 'XL' of 'size' is not declared"):
+        Preprocessor().fit(train)
+
+
+def test_almost_constant_column_becomes_zero(make_data):
+    """A range below the MinMaxScaler threshold counts as constant."""
+    train = make_data(
+        TrainMatrix, [[0.0, 5.0, "red", "S"], [1e-16, 5.0, "blue", "L"]], ["no", "yes"]
+    )
+    prep = Preprocessor().fit(train)
+    test = make_data(TestMatrix, [[5.0, 5.0, "red", "S"]], ["no"])
+    np.testing.assert_array_equal(prep.transform(train).X_num[:, 0], [0.0, 0.0])
+    assert prep.transform(test).X_num[0, 0] == 0.0
+
+
+def test_failed_fit_leaves_preprocessor_unfitted(train, make_data):
+    prep = Preprocessor().fit(train)
+    bad = make_data(TrainMatrix, [[1.0, 1.0, None, "S"], [2.0, 2.0, None, "L"]], ["no", "yes"])
+    with pytest.raises(ValueError):
+        prep.fit(bad)
+    with pytest.raises(RuntimeError):
+        prep.transform(train)
+
+
+def test_no_numeric_columns(train, make_data):
+    """Like splice: only nominal columns are left."""
+    prep = Preprocessor(drop=("a", "b")).fit(train)
+    test = make_data(TestMatrix, [[1.0, 5.0, None, "L"]], ["yes"])
+    for data, n in ((train, 4), (test, 1)):
+        out = prep.transform(data)
+        assert out.X_num.shape == (n, 0)
+        assert out.num_names == ()
+        assert out.X_nom.shape == (n, 2)
+        assert out.to_onehot().shape == (n, 3 + 2)
+    assert prep.min_.shape == prep.max_.shape == prep.mean_.shape == (0,)
+    np.testing.assert_array_equal(prep.transform(test).X_nom, [[2, 1]])  # mode blue, L
+
+
+def test_no_nominal_columns(train, make_data):
+    """All nominal columns dropped: the one-hot version is just the numeric part."""
+    prep = Preprocessor(drop=("color", "size")).fit(train)
+    test = make_data(TestMatrix, [[5.0, 5.0, "red", "S"]], ["no"])
+    for data, n in ((train, 4), (test, 1)):
+        out = prep.transform(data)
+        assert out.X_nom.shape == (n, 0)
+        assert out.nom_names == () and out.nom_cardinalities == ()
+        assert out.X_num.shape == (n, 2)
+        assert out.X_num.flags.c_contiguous
+        np.testing.assert_array_equal(out.to_onehot(), out.X_num)
+        assert out.onehot_names() == ("a", "b")
+    assert prep.mode_.shape == (0,)
 
 
 def test_transform_before_fit_raises(train):

@@ -23,7 +23,7 @@ Status: **decided** / **pending**.
 - **Test values outside the train range are clipped to [0,1].**
   *Why:* the train min/max can leave a test value slightly outside [0,1]. Clipping keeps
   every distance term bounded and satisfies "all numeric attributes lie in [0,1]". (decided)
-- **Constant column (max == min) becomes 0.**
+- **Constant column (max == min, or almost) becomes 0.**
   *Why:* such a column carries no information. `MinMaxScaler` only shifts it (a different test
   value would become 1 after clipping), so we set it to 0 ourselves. (decided)
 - **Implemented with scikit-learn** (`SimpleImputer`, `MinMaxScaler(clip=True)`, `OrdinalEncoder`,
@@ -95,6 +95,7 @@ Status: **decided** / **pending**.
 - Equivalence with the first (numpy) version: same codes and modes on all 10 folds of
   splice and vowel, numeric differences only at rounding level. On 900 random synthetic
   cases the only differences were the two intended ones (mode ties, empty nominal column).
+  The synthetic cases were checked with a throwaway script that is not in the repo.
 
 ### Observations for the analysis / report
 - **vowel has a ceiling effect.** 1-NN already reaches ~98.9%. Likely reason: the dataset has
@@ -118,10 +119,11 @@ Status: **decided** / **pending**.
 | Dropped columns | Configurable list, defaults per dataset | Own code (`DEFAULT_DROP`) | `src/preprocessing.py` |
 | Numeric missing values | Train mean | `sklearn.impute.SimpleImputer(strategy="mean", keep_empty_features=True)` | `src/preprocessing.py` |
 | Numeric scaling | Min-max to [0,1] with the train range, test clipped | `sklearn.preprocessing.MinMaxScaler(clip=True)` | `src/preprocessing.py` |
-| Constant numeric column | Set to 0 | Own code (numpy), after the scaler | `src/preprocessing.py` |
+| Constant numeric column | Set to 0 (range below `10 * eps`, the same threshold as `MinMaxScaler`) | Own code (numpy), after the scaler | `src/preprocessing.py` |
 | Nominal missing values | Train mode on the text values; ties go to the first in alphabetical order | `sklearn.impute.SimpleImputer(strategy="most_frequent")` | `src/preprocessing.py` |
 | Nominal column with no train value | `ValueError` in `fit` | Own code (check before the pipeline) | `src/preprocessing.py` |
-| Nominal encoding | Integer code = position in the ARFF header, one column per attribute; a value not in the header raises `ValueError` | `sklearn.preprocessing.OrdinalEncoder(categories=header)` | `src/preprocessing.py` |
+| Nominal encoding | Integer code = position in the ARFF header, one column per attribute | `sklearn.preprocessing.OrdinalEncoder(categories=header)` | `src/preprocessing.py` |
+| Value not declared in the header | `ValueError` naming the attribute and the value, in `fit` and `transform` | Own code (check before the pipeline) | `src/preprocessing.py` |
 | No columns of one type | Skip that pipeline (sklearn rejects 0 columns; splice has no numeric ones) | Own code (`if`) | `src/preprocessing.py` |
 | Chaining the steps | Fit on train, transform train and test | `sklearn.pipeline.make_pipeline` (one pipeline for numeric, one for nominal) | `src/preprocessing.py` |
 | One-hot for SVM / RF | One 0/1 column per header value, built from the integer codes | Own code (`np.eye`) in `Preprocessed.to_onehot()` | `src/preprocessing.py` |

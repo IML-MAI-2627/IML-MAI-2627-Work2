@@ -4,7 +4,7 @@ Built with scikit-learn transformers (allowed for preprocessing, not for the kNN
 
 Numeric attributes: missing -> train mean (SimpleImputer), then min-max to [0,1] with the
 train min/max (MinMaxScaler). Test values outside the train range are clipped to [0,1], so
-every distance term stays bounded. A constant column (max == min) becomes 0.
+every distance term stays bounded. A constant column (max == min, or almost) becomes 0.
 
 Nominal attributes: missing -> train mode (SimpleImputer), then integer codes
 (OrdinalEncoder). The code of a value is its position in the ARFF header
@@ -84,6 +84,7 @@ class Preprocessor:
 
     def fit(self, train: TrainMatrix) -> Preprocessor:
         """Fit the sklearn pipelines (min/max/mean and mode) on the train fold only."""
+        self._fitted = False  # a fit that fails must not leave an old, half-updated state
         unknown = [name for name in self.drop if name not in train.attribute_names]
         if unknown:
             raise ValueError(f"Columns to drop not in the data: {unknown}")
@@ -104,7 +105,7 @@ class Preprocessor:
 
         # Numeric: mean imputation, then min-max with clipping.
         # The imputer ignores the missing cells, and filling with the mean cannot move
-        # the min or the max, so the three statistics come from the present values only.
+        # the min or the max.
         # keep_empty_features: a column with every value missing is filled with 0.
         self.min_ = np.zeros(0)
         self.max_ = np.zeros(0)
@@ -160,11 +161,13 @@ class Preprocessor:
         if self.num_idx_:  # own rule: sklearn rejects 0 columns
             X_num = self._num_pipeline.transform(self._numeric_block(data))
             # Own rule: MinMaxScaler only shifts a constant column, and a different test
-            # value would become 1 after clipping, so we set the column to 0
-            X_num[:, self.max_ == self.min_] = 0.0
+            # value would become 1 after clipping, so we set the column to 0.
+            # Same threshold as MinMaxScaler uses to decide that the range is zero.
+            constant = (self.max_ - self.min_) < 10 * np.finfo(np.float64).eps
+            X_num[:, constant] = 0.0
+            X_num = np.ascontiguousarray(X_num)  # row-major: faster row access in the kNN
 
-        # Nominal: missing filled with the train mode, then header position as code.
-        # A value that is not in the header makes the encoder raise ValueError.
+        # Nominal: missing filled with the train mode, then header position as code
         X_nom = np.zeros((n, len(self.nom_idx_)), dtype=np.int64)
         if self.nom_idx_:  # own rule: sklearn rejects 0 columns
             X_nom = self._nom_pipeline.transform(self._nominal_block(data)).astype(np.int64)
@@ -196,7 +199,13 @@ class Preprocessor:
     def _nominal_block(self, data: ArffData) -> np.ndarray:
         """Kept nominal columns as strings, NaN where missing (what SimpleImputer expects)."""
         block = data.X[:, self.nom_idx_].copy()
-        block[data.missing[:, self.nom_idx_]] = np.nan
+        present = ~data.missing[:, self.nom_idx_]
+        # Own rule: check the values ourselves, because the encoder error gives a column
+        # number instead of the attribute name
+        for k, (name, values) in enumerate(zip(self.nom_names_, self.nom_values_, strict=True)):
+            for value in set(block[present[:, k], k]) - set(values):
+                raise ValueError(f"Value {value!r} of {name!r} is not declared in the header")
+        block[~present] = np.nan
         return block
 
 
