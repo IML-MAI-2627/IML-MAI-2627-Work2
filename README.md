@@ -96,7 +96,8 @@ pre-commit run --all-files
 
 ### Rules of the project
 - The kNN is implemented from scratch (no ML libraries in that part).
-- scikit-learn is used only for SVM and Random Forest.
+- scikit-learn is used for SVM, Random Forest and preprocessing. The kNN and the
+  instance reduction are our own code.
 - Never modify the dataset folds in `datasets/`.
 - No data leakage: normalization ranges and any statistic are computed on the
   training set of each fold only.

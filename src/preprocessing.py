@@ -1,11 +1,14 @@
 """Preprocessing fitted on the TRAIN fold only and then applied to train and test.
 
-Numeric attributes: missing -> train mean, then min-max to [0,1] with the train min/max.
-Test values outside the train range are clipped to [0,1], so every distance term stays
-bounded. A constant column (max == min) becomes 0.
+Built with scikit-learn transformers (allowed for preprocessing, not for the kNN).
 
-Nominal attributes: missing -> train mode, then integer codes. The code of a value is its
-position in the ARFF header (``nominal_values``), so codes are the same in every fold.
+Numeric attributes: missing -> train mean (SimpleImputer), then min-max to [0,1] with the
+train min/max (MinMaxScaler). Test values outside the train range are clipped to [0,1], so
+every distance term stays bounded. A constant column (max == min) becomes 0.
+
+Nominal attributes: missing -> train mode (SimpleImputer), then integer codes
+(OrdinalEncoder). The code of a value is its position in the ARFF header
+(``nominal_values``), so codes are the same in every fold.
 Each attribute stays as ONE column (needed for the HEOM overlap distance in the kNN).
 ``Preprocessed.to_onehot()`` gives the one-hot version for SVM and RF.
 """
@@ -15,6 +18,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import MinMaxScaler, OrdinalEncoder
 
 from arff_parser import NUMERIC, ArffData, TrainMatrix, load_fold
 
@@ -77,7 +83,7 @@ class Preprocessor:
         return cls(drop=DEFAULT_DROP.get(dataset, ()))
 
     def fit(self, train: TrainMatrix) -> Preprocessor:
-        """Compute min/max/mean and mode from the train fold only."""
+        """Fit the sklearn pipelines (min/max/mean and mode) on the train fold only."""
         unknown = [name for name in self.drop if name not in train.attribute_names]
         if unknown:
             raise ValueError(f"Columns to drop not in the data: {unknown}")
@@ -96,24 +102,41 @@ class Preprocessor:
         self.nom_names_ = tuple(train.attribute_names[j] for j in self.nom_idx_)
         self.nom_values_ = tuple(train.nominal_values[name] for name in self.nom_names_)
 
-        # Numeric statistics, using only the values that are not missing
-        self.min_ = np.zeros(len(self.num_idx_))
-        self.max_ = np.zeros(len(self.num_idx_))
-        self.mean_ = np.zeros(len(self.num_idx_))
-        for k, j in enumerate(self.num_idx_):
-            present = train.X[~train.missing[:, j], j].astype(np.float64)
-            if present.size > 0:  # if everything is missing the stats stay at 0
-                self.min_[k] = present.min()
-                self.max_[k] = present.max()
-                self.mean_[k] = present.mean()
+        # Numeric: mean imputation, then min-max with clipping.
+        # The imputer ignores the missing cells, and filling with the mean cannot move
+        # the min or the max, so the three statistics come from the present values only.
+        # keep_empty_features: a column with every value missing is filled with 0.
+        self.min_ = np.zeros(0)
+        self.max_ = np.zeros(0)
+        self.mean_ = np.zeros(0)
+        # Own rule: sklearn rejects an array with 0 columns (splice has no numeric ones)
+        if self.num_idx_:
+            self._num_pipeline = make_pipeline(
+                SimpleImputer(strategy="mean", keep_empty_features=True),
+                MinMaxScaler(clip=True),
+            ).fit(self._numeric_block(train))
+            imputer, scaler = self._num_pipeline[0], self._num_pipeline[1]
+            self.mean_ = imputer.statistics_.copy()
+            self.min_ = scaler.data_min_.copy()
+            self.max_ = scaler.data_max_.copy()
 
-        # Mode of each nominal column, using only the values that are not missing.
-        # argmax returns the first maximum, so ties go to the first value in the header.
-        self.mode_ = np.zeros(len(self.nom_idx_), dtype=np.int64)
-        for k, j in enumerate(self.nom_idx_):
-            codes, missing = self._encode_column(train, j, self.nom_values_[k])
-            counts = np.bincount(codes[~missing], minlength=len(self.nom_values_[k]))
-            self.mode_[k] = counts.argmax()
+        # Nominal: mode imputation on the text values, then header position as code.
+        # Mode ties: "most_frequent" returns the smallest value, i.e. alphabetical order.
+        self.mode_ = np.zeros(0, dtype=np.int64)
+        # Own rule: sklearn rejects an array with 0 columns (all nominal columns dropped)
+        if self.nom_idx_:
+            # Own rule: with no value at all there is no mode, and sklearn would silently
+            # drop the column, so we stop with a clear error
+            empty = [train.attribute_names[j] for j in self.nom_idx_ if train.missing[:, j].all()]
+            if empty:
+                raise ValueError(f"Nominal columns with every train value missing: {empty}")
+            self._nom_pipeline = make_pipeline(
+                SimpleImputer(strategy="most_frequent"),
+                OrdinalEncoder(categories=[list(v) for v in self.nom_values_]),
+            ).fit(self._nominal_block(train))
+            imputer, encoder = self._nom_pipeline[0], self._nom_pipeline[1]
+            # the mode as a code, like the values in X_nom
+            self.mode_ = encoder.transform(imputer.statistics_.reshape(1, -1))[0].astype(np.int64)
 
         self._fitted = True
         return self
@@ -134,20 +157,17 @@ class Preprocessor:
 
         # Numeric: fill missing with the train mean, scale with the train range, clip
         X_num = np.zeros((n, len(self.num_idx_)))
-        for k, j in enumerate(self.num_idx_):
-            col = data.X[:, j].astype(np.float64)
-            col[data.missing[:, j]] = self.mean_[k]
-            width = self.max_[k] - self.min_[k]
-            if width > 0:
-                X_num[:, k] = np.clip((col - self.min_[k]) / width, 0.0, 1.0)
-            # constant column in train: left as 0
+        if self.num_idx_:  # own rule: sklearn rejects 0 columns
+            X_num = self._num_pipeline.transform(self._numeric_block(data))
+            # Own rule: MinMaxScaler only shifts a constant column, and a different test
+            # value would become 1 after clipping, so we set the column to 0
+            X_num[:, self.max_ == self.min_] = 0.0
 
-        # Nominal: header position as code, missing filled with the train mode
+        # Nominal: missing filled with the train mode, then header position as code.
+        # A value that is not in the header makes the encoder raise ValueError.
         X_nom = np.zeros((n, len(self.nom_idx_)), dtype=np.int64)
-        for k, j in enumerate(self.nom_idx_):
-            codes, missing = self._encode_column(data, j, self.nom_values_[k])
-            codes[missing] = self.mode_[k]
-            X_nom[:, k] = codes
+        if self.nom_idx_:  # own rule: sklearn rejects 0 columns
+            X_nom = self._nom_pipeline.transform(self._nominal_block(data)).astype(np.int64)
 
         # Class: kept as it is, plus an integer version
         class_code = {label: i for i, label in enumerate(self.class_values_)}
@@ -167,21 +187,17 @@ class Preprocessor:
     def fit_transform(self, train: TrainMatrix) -> Preprocessed:
         return self.fit(train).transform(train)
 
-    @staticmethod
-    def _encode_column(
-        data: ArffData, j: int, values: tuple[str, ...]
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Integer codes of nominal column j (0 where missing) and its missing mask."""
-        code = {value: i for i, value in enumerate(values)}
-        missing = data.missing[:, j]
-        codes = np.zeros(data.n_instances, dtype=np.int64)
-        for i in np.flatnonzero(~missing):
-            value = data.X[i, j]
-            if value not in code:
-                name = data.attribute_names[j]
-                raise ValueError(f"Value {value!r} of {name!r} is not declared in the header")
-            codes[i] = code[value]
-        return codes, missing
+    def _numeric_block(self, data: ArffData) -> np.ndarray:
+        """Kept numeric columns as floats, NaN where the value is missing."""
+        block = data.X[:, self.num_idx_].astype(np.float64)
+        block[data.missing[:, self.num_idx_]] = np.nan
+        return block
+
+    def _nominal_block(self, data: ArffData) -> np.ndarray:
+        """Kept nominal columns as strings, NaN where missing (what SimpleImputer expects)."""
+        block = data.X[:, self.nom_idx_].copy()
+        block[data.missing[:, self.nom_idx_]] = np.nan
+        return block
 
 
 def preprocess_fold(dataset: str, fold: int) -> tuple[Preprocessed, Preprocessed, Preprocessor]:

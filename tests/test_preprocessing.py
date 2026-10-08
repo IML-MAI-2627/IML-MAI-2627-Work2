@@ -126,18 +126,26 @@ def test_statistics_ignore_missing_values(make_data):
     assert not np.isnan(np.concatenate(_stats(prep))).any()
 
 
-def test_mode_tie_goes_to_first_header_value(make_data):
+def test_mode_tie_goes_to_first_in_alphabetical_order(make_data):
     rows = [[1.0, 1.0, "blue", "L"], [2.0, 2.0, "green", "S"]]
     prep = Preprocessor().fit(make_data(TrainMatrix, rows, ["no", "yes"]))
-    np.testing.assert_array_equal(prep.mode_, [1, 0])  # green before blue, S before L
+    np.testing.assert_array_equal(prep.mode_, [2, 1])  # blue before green, L before S
 
 
-def test_column_with_all_values_missing_gives_no_nan(make_data):
-    rows = [[None, 1.0, None, "S"], [None, 2.0, None, "L"]]
+def test_numeric_column_with_all_values_missing_gives_no_nan(make_data):
+    rows = [[None, 1.0, "red", "S"], [None, 2.0, "blue", "L"]]
     train = make_data(TrainMatrix, rows, ["no", "yes"])
     out = Preprocessor().fit_transform(train)
     np.testing.assert_array_equal(out.X_num[:, 0], [0.0, 0.0])
-    np.testing.assert_array_equal(out.X_nom[:, 0], [0, 0])
+
+
+def test_nominal_column_with_all_values_missing_raises(make_data):
+    rows = [[1.0, 1.0, None, "S"], [2.0, 2.0, None, "L"]]
+    train = make_data(TrainMatrix, rows, ["no", "yes"])
+    with pytest.raises(ValueError, match="color"):
+        Preprocessor().fit(train)
+    # dropping the empty column is fine
+    assert Preprocessor(drop=("color",)).fit_transform(train).nom_names == ("size",)
 
 
 def test_drop_columns(train):
@@ -152,6 +160,14 @@ def test_drop_columns(train):
 def test_drop_unknown_column_raises(train):
     with pytest.raises(ValueError, match="not in the data"):
         Preprocessor(drop=("nope",)).fit(train)
+
+
+def test_undeclared_value_in_test_raises(train, make_data):
+    """A nominal value that is not in the header is an error, never a silent code."""
+    prep = Preprocessor().fit(train)
+    test = make_data(TestMatrix, [[1.0, 5.0, "purple", "S"]], ["no"])
+    with pytest.raises(ValueError, match="purple"):
+        prep.transform(test)
 
 
 def test_transform_before_fit_raises(train):
