@@ -67,11 +67,26 @@ def classifier(train, test) -> ClassificationResult:
     return ClassificationResult(predictions=predictions, storage=len(train.y))
 
 
-results = run_experiment("vowel", classifier, model_name="my_model", params="...")
+results = run_experiment(
+    "vowel",
+    classifier,
+    model_name="my_model",
+    params={"parameter_name": "value"},
+)
 save_results(results, "results/my_model_vowel.csv")
 ```
 
 See `docs/DECISIONS.md` for the full classifier and storage contract.
+
+### kNN base
+
+`src/knn_base.py` provides the from-scratch kNN framework. It validates `k`,
+retrieves the nearest training cases using `heapq.nsmallest()` in deterministic
+distance/index order, and adapts predictions to the shared experiment runner.
+Distance metrics and voting policies are injected callables; their
+implementations and parameter studies belong to their respective follow-up work.
+The exact integration contract and a `run_knn.py` template are in
+`docs/DECISIONS.md`.
 
 ## EDA
 Figures and a text summary of the preprocessed datasets (class distribution, vowel
