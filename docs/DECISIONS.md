@@ -109,6 +109,48 @@ Status: **decided** / **pending**.
 
 ---
 
+## Experiment runner (issue #5, `src/experiment_runner.py`)
+
+### Common classifier interface
+- **All classifiers use the same interface:** they receive a preprocessed training set and test set and return a `ClassificationResult` containing predictions and the number of retained training instances.
+  *Why:* the experiment runner should not depend on whether the classifier is kNN, SVM, Random Forest, or a reduced kNN. A common return structure lets the same evaluation and CSV-writing code handle all models. (decided)
+- **Classifier contract:** a classifier receives preprocessed `train` and `test` data and returns `ClassificationResult(predictions, storage)`. `predictions` is a `list[int]` using the class-code mapping defined by preprocessing, with one prediction per test instance.
+  `storage` is the number of retained training instances. The runner handles metric calculation, storage percentage and CSV export. (decided)
+- **Application example A:** an SVM classifier can receive `train` and `test`, perform model fitting and prediction internally, and return a `ClassificationResult`:
+  ```python
+  def svm(train, test) -> ClassificationResult:
+      predictions = ...
+      return ClassificationResult(
+          predictions=predictions,
+          storage=len(train.y),
+      )
+  ```
+  If instance reduction is applied, `storage` records the number of retained training instances. (decided)
+- **Application example B:** a Random Forest classifier can receive `train` and `test`, perform model fitting and prediction internally, and return a `ClassificationResult`:
+  ```python
+  def random_forest(train, test) -> ClassificationResult:
+      predictions = ...
+      return ClassificationResult(
+          predictions=predictions,
+          storage=len(train.y),
+      )
+  ```
+  If instance reduction is applied, `storage` records the number of retained training instances. (decided)
+- **`storage` in `ClassificationResult` is the retained training-instance count, not a percentage.** The experiment runner converts it to the percentage of the original training set before writing the CSV.
+  *Why:* a reduction method can report how many instances it retained, while the runner has the original training-set size needed to calculate the required storage percentage. Standard kNN therefore reports 100% storage. (decided)
+
+### Fold execution and results
+- **`run_fold()` handles one predefined fold:** it preprocesses the fold, runs the classifier, measures classifier execution time, validates the prediction count and retained-instance count, and computes accuracy, correct predictions, incorrect predictions, and storage percentage. The timed section is the complete classifier call, so it includes a model fit when the classifier performs one internally, while parsing, preprocessing and CSV writing are excluded. (decided)
+- **`run_experiment()` runs all 10 predefined folds** by repeatedly calling `run_fold()`; it does not create or modify the cross-validation split. (decided)
+- **Each 10-fold run starts by resetting the project seed** (`config.SEED`, currently 42).
+  *Why:* stochastic models receive the same random-state sequence when a configuration is
+  repeated, while all folds in that configuration remain reproducible. (decided)
+- **Results use one common CSV schema:** `dataset, fold, model, params, accuracy, n_correct, n_incorrect, time, storage`.
+  *Why:* all kNN, SVM, Random Forest, and reduced-model experiments can be stored and compared using the same structure. (decided)
+- **The experiment runner is model-agnostic.** Model-specific algorithms and parameters stay in their own classifier implementations; the runner only orchestrates execution and collects common metrics. (decided)
+
+---
+
 ## Methods and libraries used
 
 | Area | Method / strategy | Implemented with | Where |
@@ -126,6 +168,8 @@ Status: **decided** / **pending**.
 | Chaining the steps | Fit on train, transform train and test | `sklearn.pipeline.make_pipeline` (one pipeline for numeric, one for nominal) | `src/preprocessing.py` |
 | One-hot for SVM / RF | One 0/1 column per header value, built from the integer codes | Own code (`np.eye`) in `Preprocessed.to_onehot()` | `src/preprocessing.py` |
 | Class labels | Kept unchanged; integer code = position in the header | Own code (dict lookup) | `src/preprocessing.py` |
+| Experiment runner | Run the 10 predefined folds and collect common evaluation metrics | Own code | `src/experiment_runner.py` |
+| Result export | Save experiment results using the common 9-column CSV schema | Python `csv` | `src/experiment_runner.py` |
 | EDA figures | Class counts, histograms, nucleotide heatmaps | `matplotlib`, `seaborn` | `experiments/eda.py` |
 | EDA projection | PCA in 2D | Own code (`numpy.linalg.svd`) | `experiments/eda.py` |
 | EDA export | Preprocessed fold as CSV (one-hot + class) | `pandas` | `experiments/eda.py` |

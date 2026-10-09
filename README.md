@@ -19,7 +19,59 @@ pip install -r requirements.txt
 ```
 
 ## Running the experiments
-_TODO: placeholder. Commands will be added once the experiment runner exists._
+Experiments use the predefined 10-fold train/test splits provided in
+`datasets/`. The folds must not be modified.
+
+The experiment runner preprocesses each fold, runs the selected classifier,
+and records the classification accuracy, number of correct and incorrect
+predictions, execution time (excluding data preprocessing), and storage. It
+resets the project seed (`42`) at the beginning of every 10-fold experiment.
+The time covers the classifier call, including model fitting when a classifier
+does it internally; parsing, preprocessing and CSV writing are excluded.
+
+Results can be saved using the following common CSV schema:
+
+```text
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage
+```
+
+For reduction experiments, storage is the percentage of the original
+training instances retained by the classifier. A classifier using the complete
+training set therefore has a storage of 100%.
+
+### Run the reference baseline
+
+The majority-class baseline exercises the complete runner and writes one row per fold:
+
+```bash
+python experiments/run_baseline.py --dataset vowel
+python experiments/run_baseline.py --dataset splice
+```
+
+The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
+Use `--out <path>` to select another destination.
+
+### Connect a model
+
+Each classifier receives a preprocessed train/test pair and returns its class-code predictions
+and the number of training instances it retained. The runner calculates metrics, timing and
+storage percentage, then writes the common CSV schema. This is the interface used by kNN, SVM,
+Random Forest and their reduced-data variants:
+
+```python
+from experiment_runner import ClassificationResult, run_experiment, save_results
+
+
+def classifier(train, test) -> ClassificationResult:
+    predictions = ...  # one integer class code per test row
+    return ClassificationResult(predictions=predictions, storage=len(train.y))
+
+
+results = run_experiment("vowel", classifier, model_name="my_model", params="...")
+save_results(results, "results/my_model_vowel.csv")
+```
+
+See `docs/DECISIONS.md` for the full classifier and storage contract.
 
 ## EDA
 Figures and a text summary of the preprocessed datasets (class distribution, vowel
