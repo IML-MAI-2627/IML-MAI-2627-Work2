@@ -133,6 +133,28 @@ def test_run_fold_rejects_invalid_storage(monkeypatch):
         )
 
 
+def test_run_fold_rejects_negative_storage(monkeypatch):
+    monkeypatch.setattr(
+        experiment_runner,
+        "preprocess_fold",
+        fake_preprocess_fold,
+    )
+
+    def negative_classifier(train, test):
+        return experiment_runner.ClassificationResult(
+            predictions=[0] * len(test.y_codes),
+            storage=-1,
+        )
+
+    with pytest.raises(ValueError, match="Classifier storage"):
+        experiment_runner.run_fold(
+            dataset="vowel",
+            fold=0,
+            classifier=negative_classifier,
+            model_name="dummy",
+        )
+
+
 def test_run_fold_records_reduced_storage(monkeypatch):
     monkeypatch.setattr(
         experiment_runner,
