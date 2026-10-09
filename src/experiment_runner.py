@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from time import perf_counter
 
@@ -48,6 +49,12 @@ def format_params(params: Params | None) -> str:
     return ";".join(f"{key}={params[key]}" for key in sorted(params.keys()))
 
 
+@cache
+def load_fold(dataset: str, fold: int):
+    """Preprocess one fold once and reuse it for every configuration."""
+    return preprocess_fold(dataset, fold)
+
+
 def run_fold(
     dataset: str,
     fold: int,
@@ -56,7 +63,7 @@ def run_fold(
     params: Params | None = None,
 ) -> ExperimentResult:
     """Preprocess one fold, run a classifier and collect its metrics."""
-    train, test, _ = preprocess_fold(dataset, fold)
+    train, test, _ = load_fold(dataset, fold)
 
     start = perf_counter()
     result = classifier(train, test)

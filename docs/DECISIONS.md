@@ -148,7 +148,8 @@ Status: **decided** / **pending**.
 - **Results use one common CSV schema:** `dataset, fold, model, params, accuracy, n_correct, n_incorrect, time, storage`.
   *Why:* all kNN, SVM, Random Forest, and reduced-model experiments can be stored and compared using the same structure. (decided)
 - **The experiment runner is model-agnostic.** Model-specific algorithms and parameters stay in their own classifier implementations; the runner only orchestrates execution and collects common metrics. (decided)
-
+- **Preprocessed folds are cached** (`load_fold`, `functools.lru_cache`). Each fold is parsed and preprocessed once per process and reused by every configuration.
+  *Consequence:* classifiers must never modify `train` or `test` in place. (decided)
 ---
 
 ## Methods and libraries used

@@ -25,6 +25,13 @@ def always_zero_classifier(train, test):
     )
 
 
+@pytest.fixture(autouse=True)
+def clear_fold_cache():
+    experiment_runner.load_fold.cache_clear()
+    yield
+    experiment_runner.load_fold.cache_clear()
+
+
 def test_run_fold_metrics(monkeypatch):
     monkeypatch.setattr(
         experiment_runner,
@@ -225,3 +232,22 @@ def test_save_results_uses_required_csv_schema(tmp_path):
     assert rows[0]["n_correct"] == "2"
     assert rows[0]["n_incorrect"] == "2"
     assert rows[0]["storage"] == "100.0"
+
+
+def test_folds_are_preprocessed_once(monkeypatch):
+    calls = []
+
+    def counting_preprocess(dataset, fold):
+        calls.append(fold)
+        return fake_preprocess_fold(dataset, fold)
+
+    monkeypatch.setattr(experiment_runner, "preprocess_fold", counting_preprocess)
+
+    for _ in range(2):
+        experiment_runner.run_experiment(
+            dataset="vowel",
+            classifier=always_zero_classifier,
+            model_name="dummy",
+        )
+
+    assert len(calls) == 10
