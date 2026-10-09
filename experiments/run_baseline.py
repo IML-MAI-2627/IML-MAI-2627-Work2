@@ -44,7 +44,7 @@ def main() -> int:
         dataset=args.dataset,
         classifier=majority_classifier,
         model_name="majority_baseline",
-        params="vote=majority_train_class",
+        params={"vote": "majority_train_class"},
     )
     output = args.out or config.RESULTS_DIR / f"baseline_{args.dataset}.csv"
     save_results(results, output)

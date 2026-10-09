@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from time import perf_counter
 
@@ -38,21 +39,38 @@ class ExperimentResult:
     storage: float
 
 
+Params = dict[str, object]
+
+
+def format_params(params: Params | None) -> str:
+    """Serialize parameters with sorted keys so equal configurations give equal strings."""
+    if not params:
+        return ""
+    return ";".join(f"{key}={params[key]}" for key in sorted(params.keys()))
+
+
+@cache
+def load_fold(dataset: str, fold: int):
+    """Preprocess one fold once and reuse it for every configuration."""
+    return preprocess_fold(dataset, fold)
+
+
 def run_fold(
     dataset: str,
     fold: int,
     classifier: Classifier,
     model_name: str,
-    params: str = "",
+    params: Params | None = None,
 ) -> ExperimentResult:
     """Preprocess one fold, run a classifier and collect its metrics."""
-    train, test, _ = preprocess_fold(dataset, fold)
+    train, test, _ = load_fold(dataset, fold)
 
     start = perf_counter()
     result = classifier(train, test)
     elapsed = perf_counter() - start
 
-    predictions = result.predictions
+    # SVM and RF from sklearn return a np.ndarray.
+    predictions = [int(p) for p in result.predictions]
 
     if len(predictions) != len(test.y_codes):
         raise ValueError("Classifier returned a different number of predictions than test samples")
@@ -69,14 +87,14 @@ def run_fold(
         )
     )
     n_incorrect = len(predictions) - n_correct
-    accuracy = n_correct / len(predictions) if predictions else 0.0
+    accuracy = n_correct / len(predictions) if len(predictions) > 0 else 0.0
     storage = 100.0 * result.storage / len(train.y)
 
     return ExperimentResult(
         dataset=dataset,
         fold=fold,
         model=model_name,
-        params=params,
+        params=format_params(params),
         accuracy=accuracy,
         n_correct=n_correct,
         n_incorrect=n_incorrect,
@@ -89,7 +107,7 @@ def run_experiment(
     dataset: str,
     classifier: Classifier,
     model_name: str,
-    params: str = "",
+    params: Params | None = None,
 ) -> list[ExperimentResult]:
     """Run one classifier on all predefined folds of a dataset with a fixed seed."""
     config.set_seed()

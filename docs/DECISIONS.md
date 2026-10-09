@@ -135,12 +135,12 @@ Status: **decided** / **pending**.
           storage=len(train.y),
       )
   ```
-  If instance reduction is applied, `storage` records the number of retained training instances. (decided)
+  `predictions` may be a list or a numpy array. With instance reduction, `storage` is the number of retained training instances. (decided)
 - **`storage` in `ClassificationResult` is the retained training-instance count, not a percentage.** The experiment runner converts it to the percentage of the original training set before writing the CSV.
   *Why:* a reduction method can report how many instances it retained, while the runner has the original training-set size needed to calculate the required storage percentage. Standard kNN therefore reports 100% storage. (decided)
 
 ### Fold execution and results
-- **`run_fold()` handles one predefined fold:** it preprocesses the fold, runs the classifier, measures classifier execution time, validates the prediction count and retained-instance count, and computes accuracy, correct predictions, incorrect predictions, and storage percentage. The timed section is the complete classifier call, so it includes a model fit when the classifier performs one internally, while parsing, preprocessing and CSV writing are excluded. (decided)
+- **`run_fold()` handles one predefined fold:** it loads the preprocessed fold, runs the classifier, measures classifier execution time, validates the prediction count and retained-instance count, and computes accuracy, correct predictions, incorrect predictions, and storage percentage. The timed section is the complete classifier call, so it includes a model fit when the classifier performs one internally, while parsing, preprocessing and CSV writing are excluded. (decided)
 - **`run_experiment()` runs all 10 predefined folds** by repeatedly calling `run_fold()`; it does not create or modify the cross-validation split. (decided)
 - **Each 10-fold run starts by resetting the project seed** (`config.SEED`, currently 42).
   *Why:* stochastic models receive the same random-state sequence when a configuration is
@@ -148,7 +148,12 @@ Status: **decided** / **pending**.
 - **Results use one common CSV schema:** `dataset, fold, model, params, accuracy, n_correct, n_incorrect, time, storage`.
   *Why:* all kNN, SVM, Random Forest, and reduced-model experiments can be stored and compared using the same structure. (decided)
 - **The experiment runner is model-agnostic.** Model-specific algorithms and parameters stay in their own classifier implementations; the runner only orchestrates execution and collects common metrics. (decided)
-
+- **Preprocessed folds are cached** (`load_fold`, `functools.lru_cache`). Each fold is parsed and preprocessed once per process and reused by every configuration.
+  *Consequence:* classifiers must never modify `train` or `test` in place. (decided)
+- **Units in the CSV:** `accuracy` is a fraction in [0,1]; `storage` is a percentage in [0,100].
+  *Why:* storage is reported as a percentage of the original training set, accuracy keeps the usual fraction. Convert when building tables. (decided)
+- **Stochastic classifiers pass `random_state=config.SEED` explicitly** (e.g. Random Forest).
+  *Why:* the seed reset in `run_experiment` only reaches models that use numpy's global random state; an explicit `random_state` is reproducible regardless. (decided)
 ---
 
 ## Methods and libraries used

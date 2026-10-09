@@ -1,5 +1,6 @@
 import csv
 
+import numpy as np
 import pytest
 
 import experiment_runner
@@ -24,6 +25,13 @@ def always_zero_classifier(train, test):
     )
 
 
+@pytest.fixture(autouse=True)
+def clear_fold_cache():
+    experiment_runner.load_fold.cache_clear()
+    yield
+    experiment_runner.load_fold.cache_clear()
+
+
 def test_run_fold_metrics(monkeypatch):
     monkeypatch.setattr(
         experiment_runner,
@@ -36,7 +44,7 @@ def test_run_fold_metrics(monkeypatch):
         fold=0,
         classifier=always_zero_classifier,
         model_name="dummy",
-        params="class=0",
+        params={"class": 0},
     )
 
     assert result.dataset == "vowel"
@@ -48,6 +56,13 @@ def test_run_fold_metrics(monkeypatch):
     assert result.accuracy == 0.5
     assert result.time >= 0
     assert result.storage == 100.0
+
+
+def test_format_params_is_order_independent():
+    a = experiment_runner.format_params({"k": 3, "distance": "heom"})
+    b = experiment_runner.format_params({"distance": "heom", "k": 3})
+    assert a == b == "distance=heom;k=3"
+    assert experiment_runner.format_params(None) == ""
 
 
 def test_run_fold_rejects_wrong_prediction_count(monkeypatch):
@@ -72,6 +87,30 @@ def test_run_fold_rejects_wrong_prediction_count(monkeypatch):
         )
 
 
+def test_run_fold_accepts_numpy_predictions(monkeypatch):
+    monkeypatch.setattr(
+        experiment_runner,
+        "preprocess_fold",
+        fake_preprocess_fold,
+    )
+
+    def numpy_classifier(train, test):
+        return experiment_runner.ClassificationResult(
+            predictions=np.zeros(len(test.y_codes), dtype=np.int64),
+            storage=len(train.y),
+        )
+
+    result = experiment_runner.run_fold(
+        dataset="vowel",
+        fold=0,
+        classifier=numpy_classifier,
+        model_name="dummy",
+    )
+
+    assert result.n_correct == 2
+    assert result.accuracy == 0.5
+
+
 def test_run_fold_rejects_invalid_storage(monkeypatch):
     monkeypatch.setattr(
         experiment_runner,
@@ -90,6 +129,28 @@ def test_run_fold_rejects_invalid_storage(monkeypatch):
             dataset="vowel",
             fold=0,
             classifier=invalid_classifier,
+            model_name="dummy",
+        )
+
+
+def test_run_fold_rejects_negative_storage(monkeypatch):
+    monkeypatch.setattr(
+        experiment_runner,
+        "preprocess_fold",
+        fake_preprocess_fold,
+    )
+
+    def negative_classifier(train, test):
+        return experiment_runner.ClassificationResult(
+            predictions=[0] * len(test.y_codes),
+            storage=-1,
+        )
+
+    with pytest.raises(ValueError, match="Classifier storage"):
+        experiment_runner.run_fold(
+            dataset="vowel",
+            fold=0,
+            classifier=negative_classifier,
             model_name="dummy",
         )
 
@@ -193,3 +254,22 @@ def test_save_results_uses_required_csv_schema(tmp_path):
     assert rows[0]["n_correct"] == "2"
     assert rows[0]["n_incorrect"] == "2"
     assert rows[0]["storage"] == "100.0"
+
+
+def test_folds_are_preprocessed_once(monkeypatch):
+    calls = []
+
+    def counting_preprocess(dataset, fold):
+        calls.append(fold)
+        return fake_preprocess_fold(dataset, fold)
+
+    monkeypatch.setattr(experiment_runner, "preprocess_fold", counting_preprocess)
+
+    for _ in range(2):
+        experiment_runner.run_experiment(
+            dataset="vowel",
+            classifier=always_zero_classifier,
+            model_name="dummy",
+        )
+
+    assert len(calls) == 10
