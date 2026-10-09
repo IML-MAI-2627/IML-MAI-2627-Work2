@@ -38,12 +38,22 @@ class ExperimentResult:
     storage: float
 
 
+Params = dict[str, object]
+
+
+def format_params(params: Params | None) -> str:
+    """Serialize parameters with sorted keys so equal configurations give equal strings."""
+    if not params:
+        return ""
+    return ";".join(f"{key}={params[key]}" for key in sorted(params.keys()))
+
+
 def run_fold(
     dataset: str,
     fold: int,
     classifier: Classifier,
     model_name: str,
-    params: str = "",
+    params: Params | None = None,
 ) -> ExperimentResult:
     """Preprocess one fold, run a classifier and collect its metrics."""
     train, test, _ = preprocess_fold(dataset, fold)
@@ -77,7 +87,7 @@ def run_fold(
         dataset=dataset,
         fold=fold,
         model=model_name,
-        params=params,
+        params=format_params(params),
         accuracy=accuracy,
         n_correct=n_correct,
         n_incorrect=n_incorrect,
@@ -90,7 +100,7 @@ def run_experiment(
     dataset: str,
     classifier: Classifier,
     model_name: str,
-    params: str = "",
+    params: Params | None = None,
 ) -> list[ExperimentResult]:
     """Run one classifier on all predefined folds of a dataset with a fixed seed."""
     config.set_seed()

@@ -37,7 +37,7 @@ def test_run_fold_metrics(monkeypatch):
         fold=0,
         classifier=always_zero_classifier,
         model_name="dummy",
-        params="class=0",
+        params={"class": 0},
     )
 
     assert result.dataset == "vowel"
@@ -49,6 +49,13 @@ def test_run_fold_metrics(monkeypatch):
     assert result.accuracy == 0.5
     assert result.time >= 0
     assert result.storage == 100.0
+
+
+def test_format_params_is_order_independent():
+    a = experiment_runner.format_params({"k": 3, "distance": "heom"})
+    b = experiment_runner.format_params({"distance": "heom", "k": 3})
+    assert a == b == "distance=heom;k=3"
+    assert experiment_runner.format_params(None) == ""
 
 
 def test_run_fold_rejects_wrong_prediction_count(monkeypatch):
