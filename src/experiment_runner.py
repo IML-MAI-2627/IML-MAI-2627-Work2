@@ -52,7 +52,8 @@ def run_fold(
     result = classifier(train, test)
     elapsed = perf_counter() - start
 
-    predictions = result.predictions
+    # SVM and RF from sklearn return a np.ndarray.
+    predictions = [int(p) for p in result.predictions]
 
     if len(predictions) != len(test.y_codes):
         raise ValueError("Classifier returned a different number of predictions than test samples")
@@ -69,7 +70,7 @@ def run_fold(
         )
     )
     n_incorrect = len(predictions) - n_correct
-    accuracy = n_correct / len(predictions) if predictions else 0.0
+    accuracy = n_correct / len(predictions) if len(predictions) > 0 else 0.0
     storage = 100.0 * result.storage / len(train.y)
 
     return ExperimentResult(

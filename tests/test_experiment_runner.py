@@ -1,5 +1,6 @@
 import csv
 
+import numpy as np
 import pytest
 
 import experiment_runner
@@ -70,6 +71,30 @@ def test_run_fold_rejects_wrong_prediction_count(monkeypatch):
             classifier=wrong_classifier,
             model_name="dummy",
         )
+
+
+def test_run_fold_accepts_numpy_predictions(monkeypatch):
+    monkeypatch.setattr(
+        experiment_runner,
+        "preprocess_fold",
+        fake_preprocess_fold,
+    )
+
+    def numpy_classifier(train, test):
+        return experiment_runner.ClassificationResult(
+            predictions=np.zeros(len(test.y_codes), dtype=np.int64),
+            storage=len(train.y),
+        )
+
+    result = experiment_runner.run_fold(
+        dataset="vowel",
+        fold=0,
+        classifier=numpy_classifier,
+        model_name="dummy",
+    )
+
+    assert result.n_correct == 2
+    assert result.accuracy == 0.5
 
 
 def test_run_fold_rejects_invalid_storage(monkeypatch):
