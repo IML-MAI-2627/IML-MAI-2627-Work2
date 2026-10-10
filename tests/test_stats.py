@@ -1,7 +1,10 @@
 """Tests for the statistical comparison module."""
 
+import math
+
 import pandas as pd
 import pytest
+from scipy import stats as sp_stats
 
 import stats
 
@@ -181,3 +184,43 @@ def test_mean_ranks_reproduce_demsar_table6():
     assert ranks["C4.5+cf"] == pytest.approx(2.893, abs=1e-3)
     assert ranks["C4.5+m+cf"] == pytest.approx(1.964, abs=1e-3)
     assert ranks.index[0] == "C4.5+m+cf"  # best first
+
+
+def test_friedman_reproduces_demsar_table6():
+    result = stats.friedman_test(demsar_table6())
+
+    assert result.n_blocks == 14
+    assert result.n_configs == 4
+    assert result.chi2 == pytest.approx(9.28, abs=0.01)
+    assert result.iman_davenport == pytest.approx(3.69, abs=0.01)
+    assert result.iman_davenport_p_value < 0.05
+
+
+def test_f_critical_value_matches_demsar():
+    # Demšar p. 14: "The critical value of F(3,39) for alpha = 0.05 is 2.85"
+    assert sp_stats.f.ppf(0.95, 3, 39) == pytest.approx(2.85, abs=0.01)
+
+
+def test_friedman_identical_configurations_give_no_evidence():
+    table = pd.DataFrame({"A": [0.9, 0.8, 0.7], "B": [0.9, 0.8, 0.7], "C": [0.9, 0.8, 0.7]})
+
+    result = stats.friedman_test(table)
+
+    assert result.chi2 == pytest.approx(0.0)
+    assert result.iman_davenport_p_value == pytest.approx(1.0)
+
+
+def test_friedman_same_order_in_every_fold_gives_infinite_f():
+    table = pd.DataFrame({"A": [0.9, 0.9, 0.9], "B": [0.8, 0.8, 0.8], "C": [0.7, 0.7, 0.7]})
+
+    result = stats.friedman_test(table)
+
+    assert result.iman_davenport == math.inf
+    assert result.iman_davenport_p_value == 0.0
+
+
+def test_friedman_rejects_two_configurations():
+    table = pd.DataFrame({"A": [0.9, 0.8], "B": [0.7, 0.6]})
+
+    with pytest.raises(ValueError, match="Wilcoxon"):
+        stats.friedman_test(table)

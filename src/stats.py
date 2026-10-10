@@ -1,16 +1,19 @@
 """Statistical comparison of classifiers following Demšar (2006).
 
 Every test works on a score table: one row per fold (the blocks) and one column
-per configuration (the classifiers). This is the c_i^ĵ matrix of Demšar (2006),
+per configuration (the classifiers). This is the c_i^j matrix of Demšar (2006),
 Section 1, with the 10 folds of one dataset in place of different datasets.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
+from scipy import stats as sp_stats
 
 RESULT_COLUMNS = (
     "dataset",
@@ -25,6 +28,19 @@ RESULT_COLUMNS = (
 )
 METRICS = ("accuracy", "time", "storage")
 HIGHER_IS_BETTER = {"accuracy": True, "time": False, "storage": False}
+
+
+@dataclass(frozen=True)
+class FriedmanResult:
+    """Friedman test over N folds (blocks) and k configurations."""
+
+    n_blocks: int
+    n_configs: int
+    mean_ranks: pd.Series
+    chi2: float
+    chi2_p_value: float
+    iman_davenport: float
+    iman_davenport_p_value: float
 
 
 def load_results(paths: Iterable[str | Path]) -> pd.DataFrame:
@@ -90,3 +106,36 @@ def mean_ranks(table: pd.DataFrame, higher_is_better: bool = True) -> pd.Series:
     Demšar (2006)
     """
     return rank_table(table, higher_is_better).mean().sort_values()
+
+
+def friedman_test(table: pd.DataFrame, higher_is_better: bool = True) -> FriedmanResult:
+    """Friedman chi-square and the Iman-Davenport F statistic."""
+    n_blocks, k = table.shape
+    if k < 3:
+        raise ValueError("Friedman needs at least 3 configurations, use Wilcoxon for 2")
+    if n_blocks < 2:
+        raise ValueError("Friedman needs at least 2 folds")
+
+    ranks = mean_ranks(table, higher_is_better)
+
+    factor = 12 * n_blocks / (k * (k + 1))
+    bracket = (ranks**2).sum() - k * (k + 1) ** 2 / 4
+    chi2 = factor * bracket
+    chi2_p_value = sp_stats.chi2.sf(chi2, df=k - 1)
+
+    denominator = n_blocks * (k - 1) - chi2
+    if denominator <= 1e-12:
+        iman_davenport = math.inf
+    else:
+        iman_davenport = (n_blocks - 1) * chi2 / denominator
+    iman_davenport_p_value = sp_stats.f.sf(iman_davenport, k - 1, (k - 1) * (n_blocks - 1))
+
+    return FriedmanResult(
+        n_blocks=n_blocks,
+        n_configs=k,
+        mean_ranks=ranks,
+        chi2=float(chi2),
+        chi2_p_value=float(chi2_p_value),
+        iman_davenport=float(iman_davenport),
+        iman_davenport_p_value=float(iman_davenport_p_value),
+    )
