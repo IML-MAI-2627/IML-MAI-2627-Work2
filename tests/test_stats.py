@@ -2,6 +2,7 @@
 
 import math
 
+import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 from scipy import stats as sp_stats
@@ -421,3 +422,31 @@ def test_compare_two_rejects_unknown_configuration():
 
     with pytest.raises(ValueError, match="Unknown configuration"):
         stats.compare_two(table, "A", "SVM")
+
+
+def test_nemenyi_groups_reproduce_demsar_figure_1a():
+    # Demšar p. 14 and Fig. 1(a), alpha = 0.10: two groups; C4.5+cf belongs to both
+    # because the data is not sufficient to place it.
+    result = stats.nemenyi_test(demsar_table6(), alpha=0.10)
+
+    assert stats.nemenyi_groups(result) == [
+        ["C4.5+m+cf", "C4.5+m", "C4.5+cf"],
+        ["C4.5+cf", "C4.5"],
+    ]
+
+
+def test_nemenyi_groups_single_group_when_nothing_differs():
+    # alpha = 0.05: CD = 1.25 is larger than every gap, so all four are joined.
+    result = stats.nemenyi_test(demsar_table6(), alpha=0.05)
+
+    assert stats.nemenyi_groups(result) == [["C4.5+m+cf", "C4.5+m", "C4.5+cf", "C4.5"]]
+
+
+def test_plot_cd_diagram_saves_nemenyi_and_control_figures(tmp_path):
+    nemenyi = stats.nemenyi_test(demsar_table6(), alpha=0.10)
+    control = stats.bonferroni_dunn_test(demsar_table6(), control="C4.5")
+
+    for filename, result in [("nemenyi.png", nemenyi), ("control.png", control)]:
+        fig = stats.plot_cd_diagram(result, title=filename, path=tmp_path / filename)
+        assert (tmp_path / filename).stat().st_size > 0
+        plt.close(fig)

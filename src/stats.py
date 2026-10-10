@@ -341,3 +341,110 @@ def compare_two(
         t_statistic=float(t_result.statistic),
         t_p_value=float(t_result.pvalue),
     )
+
+
+def nemenyi_groups(result: PostHocResult) -> list[list[str]]:
+    """Maximal groups of consecutive configurations (by mean rank) whose ranks differ by < CD.
+
+    These are the groups joined by a line in the CD diagram, Demšar (2006), Figure 1(a).
+    """
+    ranks = result.mean_ranks.sort_values()
+    names = list(ranks.index)
+    values = ranks.to_list()
+
+    groups: list[list[str]] = []
+    for i in range(len(names)):
+        j = i
+        while j + 1 < len(names) and values[j + 1] - values[i] < result.critical_difference:
+            j += 1
+        if j > i:
+            candidate = names[i : j + 1]
+            if not any(set(candidate) <= set(group) for group in groups):
+                groups.append(candidate)
+    return groups
+
+
+def plot_cd_diagram(
+    result: PostHocResult | ControlComparisonResult,
+    title: str | None = None,
+    path: str | Path | None = None,
+):
+    """Critical difference diagram; returns the matplotlib Figure.
+
+    Demšar (2006), Section 3.2.4 and Figure 1: mean ranks on an axis with the best (lowest)
+    rank on the right. Nemenyi: groups that are not significantly different are joined by a
+    thick line (Fig. 1a). Bonferroni-Dunn: the interval of one CD around the control is
+    marked (Fig. 1b). The CD is drawn above the axis.
+    """
+    import matplotlib.pyplot as plt  # only needed here
+
+    ranks = result.mean_ranks.sort_values()
+    names = list(ranks.index)
+    k = len(names)
+    cd = result.critical_difference
+
+    control = result.control if isinstance(result, ControlComparisonResult) else None
+    if isinstance(result, ControlComparisonResult):
+        centre = ranks[result.control]
+        bars = [(max(1.0, centre - cd), min(float(k), centre + cd))]
+    else:
+        bars = [(ranks[group[0]], ranks[group[-1]]) for group in nemenyi_groups(result)]
+
+    half = (k + 1) // 2
+    right = names[:half]  # best half, labelled on the right
+    left = names[half:][::-1]  # worst half, labelled on the left (worst at the top)
+    step = 0.35
+    first_row = -0.25 - 0.15 * len(bars)
+    n_rows = max(len(right), len(left))
+
+    fig, ax = plt.subplots(figsize=(8, 1.5 + step * n_rows + 0.15 * len(bars)))
+    ax.set_xlim(k + 0.5, 0.5)  # inverted: rank 1 (best) on the right
+    ax.set_ylim(first_row - step * n_rows, 0.9)
+    ax.axis("off")
+
+    # Rank axis with integer ticks.
+    ax.hlines(0, 1, k, color="black")
+    for r in range(1, k + 1):
+        ax.vlines(r, 0, 0.08, color="black")
+        ax.text(r, 0.12, str(r), ha="center", va="bottom")
+
+    # Critical difference above the axis.
+    ax.hlines(0.6, 1, min(1 + cd, k), color="black", linewidth=2)
+    ax.text(1 + min(cd, k - 1) / 2, 0.65, f"CD = {cd:.2f}", ha="center", va="bottom")
+
+    # Groups that are not significantly different (Nemenyi) or the control interval.
+    pad = 0.0 if isinstance(result, ControlComparisonResult) else 0.03
+    for i, (start, end) in enumerate(bars):
+        y = -0.15 * (i + 1)
+        ax.hlines(y, start - pad, end + pad, color="black", linewidth=4)
+
+    # One label per configuration: best half on the right, worst half on the left.
+    for row, name in enumerate(right):
+        y = first_row - step * row
+        ax.vlines(ranks[name], y, 0, color="gray", linewidth=0.8)
+        ax.hlines(y, 0.9, ranks[name], color="gray", linewidth=0.8)
+        ax.text(
+            0.85,
+            y,
+            f"{name} ({ranks[name]:.2f})",
+            ha="left",
+            va="center",
+            fontweight="bold" if name == control else "normal",
+        )
+    for row, name in enumerate(left):
+        y = first_row - step * row
+        ax.vlines(ranks[name], y, 0, color="gray", linewidth=0.8)
+        ax.hlines(y, ranks[name], k + 0.1, color="gray", linewidth=0.8)
+        ax.text(
+            k + 0.15,
+            y,
+            f"{name} ({ranks[name]:.2f})",
+            ha="right",
+            va="center",
+            fontweight="bold" if name == control else "normal",
+        )
+    if title:
+        ax.set_title(title)
+    if path is not None:
+        fig.savefig(path, bbox_inches="tight", dpi=150)
+    return fig
