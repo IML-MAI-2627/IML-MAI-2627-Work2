@@ -24,6 +24,7 @@ RESULT_COLUMNS = (
     "storage",
 )
 METRICS = ("accuracy", "time", "storage")
+HIGHER_IS_BETTER = {"accuracy": True, "time": False, "storage": False}
 
 
 def load_results(paths: Iterable[str | Path]) -> pd.DataFrame:
@@ -73,3 +74,19 @@ def score_table(
         incomplete = table.columns[table.isna().any()].tolist()
         raise ValueError(f"Configurations without results on every fold: {incomplete}")
     return table
+
+
+def rank_table(table: pd.DataFrame, higher_is_better: bool = True) -> pd.DataFrame:
+    """Rank the configurations inside each fold: 1 = best, ties get the average rank.
+
+    Demšar (2006).
+    """
+    return table.rank(axis=1, ascending=not higher_is_better, method="average")
+
+
+def mean_ranks(table: pd.DataFrame, higher_is_better: bool = True) -> pd.Series:
+    """Average rank R_j of each configuration over all folds, best (lowest) first.
+
+    Demšar (2006)
+    """
+    return rank_table(table, higher_is_better).mean().sort_values()
