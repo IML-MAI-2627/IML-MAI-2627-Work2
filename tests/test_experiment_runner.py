@@ -111,6 +111,25 @@ def test_run_fold_accepts_numpy_predictions(monkeypatch):
     assert result.accuracy == 0.5
 
 
+@pytest.mark.parametrize("bad_prediction", [1.7, 2.0, True])
+def test_run_fold_rejects_non_integer_predictions(monkeypatch, bad_prediction):
+    monkeypatch.setattr(experiment_runner, "preprocess_fold", fake_preprocess_fold)
+
+    def bad_classifier(train, test):
+        return experiment_runner.ClassificationResult(
+            predictions=[bad_prediction] * len(test.y_codes),
+            storage=len(train.y),
+        )
+
+    with pytest.raises(ValueError, match="integer class codes"):
+        experiment_runner.run_fold(
+            dataset="vowel",
+            fold=0,
+            classifier=bad_classifier,
+            model_name="dummy",
+        )
+
+
 def test_run_fold_rejects_invalid_storage(monkeypatch):
     monkeypatch.setattr(
         experiment_runner,

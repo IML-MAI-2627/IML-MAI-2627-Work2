@@ -9,6 +9,8 @@ from functools import cache
 from pathlib import Path
 from time import perf_counter
 
+import numpy as np
+
 import config
 from preprocessing import Preprocessed, preprocess_fold
 
@@ -70,7 +72,11 @@ def run_fold(
     elapsed = perf_counter() - start
 
     # SVM and RF from sklearn return a np.ndarray.
-    predictions = [int(p) for p in result.predictions]
+    predictions = list(result.predictions)
+    for prediction in predictions:
+        if isinstance(prediction, bool) or not isinstance(prediction, int | np.integer):
+            raise ValueError("Classifier predictions must be integer class codes")
+    predictions = [int(p) for p in predictions]
 
     if len(predictions) != len(test.y_codes):
         raise ValueError("Classifier returned a different number of predictions than test samples")

@@ -136,6 +136,8 @@ Status: **decided** / **pending**.
       )
   ```
   `predictions` may be a list or a numpy array. With instance reduction, `storage` is the number of retained training instances. (decided)
+- Values must be integer class codes (Python or numpy integers); anything else, such as
+  `1.7`, raises `ValueError` instead of being silently truncated by `int()`.
 - **`storage` in `ClassificationResult` is the retained training-instance count, not a percentage.** The experiment runner converts it to the percentage of the original training set before writing the CSV.
   *Why:* a reduction method can report how many instances it retained, while the runner has the original training-set size needed to calculate the required storage percentage. Standard kNN therefore reports 100% storage. (decided)
 
