@@ -43,6 +43,17 @@ class FriedmanResult:
     iman_davenport_p_value: float
 
 
+@dataclass(frozen=True)
+class PostHocResult:
+    """Pairwise post-hoc comparison after a significant Friedman test."""
+
+    method: str
+    alpha: float
+    critial_difference: float
+    mean_ranks: pd.Series
+    significant: pd.DataFrame  # k x k table, True where two configurations differ
+
+
 def load_results(paths: Iterable[str | Path]) -> pd.DataFrame:
     """Read one or more result CSVs written by the experiment runner into one DataFrame."""
     frames = [pd.read_csv(path, keep_default_na=False) for path in paths]
@@ -138,4 +149,48 @@ def friedman_test(table: pd.DataFrame, higher_is_better: bool = True) -> Friedma
         chi2_p_value=float(chi2_p_value),
         iman_davenport=float(iman_davenport),
         iman_davenport_p_value=float(iman_davenport_p_value),
+    )
+
+
+def nemenyi_q(k: int, alpha: float = 0.05) -> float:
+    """Two-tailed Nemenyi critical value q_alpha.
+
+    The values are the Studentized range statistic divided by sqrt(2), so we
+    compute them for any k (infinite degrees of freedom).
+    """
+    if k < 2:
+        raise ValueError("Nemenyi needs at least 2 configurations")
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be between 0 and 1")
+    return float(sp_stats.studentized_range.ppf(1 - alpha, k, math.inf) / math.sqrt(2))
+
+
+def critical_difference(k: int, n_blocks: int, q: float) -> float:
+    """CD = q * sqrt(k(k+1) / 6N), Demšar"""
+    return q * math.sqrt(k * (k + 1) / (6 * n_blocks))
+
+
+def nemenyi_test(
+    table: pd.DataFrame,
+    alpha: float = 0.05,
+    higher_is_better: bool = True,
+) -> PostHocResult:
+    """All-pairs Nemenyi test: two configurations differ if their mean ranks differ by >= CD.
+
+    Use it only after a significant Friedman test.
+    """
+    n_blocks, k = table.shape
+    ranks = mean_ranks(table, higher_is_better)
+    cd = critical_difference(k, n_blocks, nemenyi_q(k, alpha))
+
+    values = ranks.to_numpy()
+    gaps = abs(values[:, None] - values[None, :])
+    significant = pd.DataFrame(gaps >= cd, index=ranks.index, columns=ranks.index)
+
+    return PostHocResult(
+        method="nemenyi",
+        alpha=alpha,
+        critial_difference=cd,
+        mean_ranks=ranks,
+        significant=significant,
     )

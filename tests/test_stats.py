@@ -224,3 +224,66 @@ def test_friedman_rejects_two_configurations():
 
     with pytest.raises(ValueError, match="Wilcoxon"):
         stats.friedman_test(table)
+
+
+# Demšar (2006), Table 5(a): two-tailed Nemenyi critical values.
+NEMENYI_Q_005 = {
+    2: 1.960,
+    3: 2.343,
+    4: 2.569,
+    5: 2.728,
+    6: 2.850,
+    7: 2.949,
+    8: 3.031,
+    9: 3.102,
+    10: 3.164,
+}
+NEMENYI_Q_010 = {
+    2: 1.645,
+    3: 2.052,
+    4: 2.291,
+    5: 2.459,
+    6: 2.589,
+    7: 2.693,
+    8: 2.780,
+    9: 2.855,
+    10: 2.920,
+}
+
+
+@pytest.mark.parametrize("k", range(2, 11))
+def test_nemenyi_q_reproduces_demsar_table5a(k):
+    assert stats.nemenyi_q(k, 0.05) == pytest.approx(NEMENYI_Q_005[k], abs=2e-3)
+    assert stats.nemenyi_q(k, 0.10) == pytest.approx(NEMENYI_Q_010[k], abs=2e-3)
+
+
+def test_critical_difference_reproduces_demsar_example():
+    # Demšar p. 14: k = 4, N = 14 -> CD = 1.25 (alpha 0.05) and 1.12 (alpha 0.10)
+    assert stats.critical_difference(4, 14, stats.nemenyi_q(4, 0.05)) == pytest.approx(
+        1.25, abs=0.01
+    )
+    assert stats.critical_difference(4, 14, stats.nemenyi_q(4, 0.10)) == pytest.approx(
+        1.12, abs=0.01
+    )
+
+
+def test_nemenyi_finds_no_difference_at_005_on_table6():
+    # Demšar p. 14: "even the difference between the best and the worst performing
+    # algorithm is already smaller than that" (CD = 1.25)
+    result = stats.nemenyi_test(demsar_table6(), alpha=0.05)
+
+    assert not result.significant.to_numpy().any()
+
+
+def test_nemenyi_finds_two_differences_at_010_on_table6():
+    # Demšar p. 14: at p = 0.10, C4.5 is significantly worse than C4.5+m and C4.5+m+cf;
+    # nothing can be said about C4.5+cf.
+    result = stats.nemenyi_test(demsar_table6(), alpha=0.10)
+    sig = result.significant
+
+    assert sig.loc["C4.5", "C4.5+m"]
+    assert sig.loc["C4.5", "C4.5+m+cf"]
+    assert not sig.loc["C4.5+cf", "C4.5"]
+    assert not sig.loc["C4.5+cf", "C4.5+m"]
+    assert not sig.loc["C4.5+cf", "C4.5+m+cf"]
+    assert not sig.loc["C4.5+m", "C4.5+m+cf"]
