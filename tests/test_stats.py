@@ -352,3 +352,72 @@ def test_bonferroni_dunn_reproduces_demsar_conclusion_on_table6():
 def test_bonferroni_dunn_rejects_unknown_control():
     with pytest.raises(ValueError, match="Unknown control"):
         stats.bonferroni_dunn_test(demsar_table6(), control="SVM")
+
+
+# Demšar (2006), Table 2: AUC differences C4.5+m - C4.5 on 14 data sets.
+DEMSAR_TABLE2_DIFFERENCES = [
+    0.005,
+    -0.008,
+    0.017,
+    0.033,
+    0.006,
+    -0.005,
+    0.007,
+    0.000,
+    0.063,
+    0.000,
+    0.022,
+    0.047,
+    0.009,
+    0.021,
+]
+
+
+def test_wilcoxon_reproduces_demsar_table2():
+    # Demšar p. 8: R+ = 93, R- = 12; with N = 14 the critical value is 21, so T = 12
+    # rejects the null hypothesis at alpha = 0.05.
+    r_plus, r_minus, p_value = stats.wilcoxon_signed_ranks(pd.Series(DEMSAR_TABLE2_DIFFERENCES))
+
+    assert r_plus == pytest.approx(93)
+    assert r_minus == pytest.approx(12)
+    assert p_value < 0.05
+
+
+def test_wilcoxon_p_value_matches_scipy_without_ties_or_zeros():
+    d = [0.03, -0.01, 0.05, 0.02, 0.07, -0.04, 0.06, 0.08, 0.09, 0.10]
+
+    _, _, p_value = stats.wilcoxon_signed_ranks(pd.Series(d))
+
+    assert p_value == pytest.approx(sp_stats.wilcoxon(d, method="exact").pvalue)
+
+
+def test_wilcoxon_ignores_one_zero_when_their_number_is_odd():
+    # One zero (odd) is dropped; |0.1| gets rank 1 (positive), |-0.2| rank 2 (negative).
+    r_plus, r_minus, _ = stats.wilcoxon_signed_ranks(pd.Series([0.0, 0.1, -0.2]))
+
+    assert (r_plus, r_minus) == (1, 2)
+
+
+def test_wilcoxon_all_zero_differences_give_no_evidence():
+    _, _, p_value = stats.wilcoxon_signed_ranks(pd.Series([0.0, 0.0, 0.0, 0.0]))
+
+    assert p_value == 1.0
+
+
+def test_compare_two_direction_for_accuracy_and_time():
+    table = pd.DataFrame({"A": [0.80, 0.70, 0.75], "B": [0.90, 0.85, 0.95]})
+
+    accuracy = stats.compare_two(table, "A", "B")  # B more accurate
+    time = stats.compare_two(table, "A", "B", higher_is_better=False)  # B slower
+
+    assert accuracy.r_plus > accuracy.r_minus
+    assert accuracy.t_statistic > 0
+    assert time.r_plus < time.r_minus
+    assert time.t_statistic < 0
+
+
+def test_compare_two_rejects_unknown_configuration():
+    table = pd.DataFrame({"A": [0.8], "B": [0.9]})
+
+    with pytest.raises(ValueError, match="Unknown configuration"):
+        stats.compare_two(table, "A", "SVM")

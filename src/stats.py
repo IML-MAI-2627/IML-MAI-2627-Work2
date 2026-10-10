@@ -307,3 +307,37 @@ def wilcoxon_signed_ranks(differences: pd.Series) -> tuple[float, float, float]:
     lower_tail = sum(n for total, n in counts.items() if total <= limit + 1e-9)
     p_value = min(1.0, 2 * lower_tail / 2 ** len(doubled))
     return r_plus, r_minus, p_value
+
+
+def compare_two(
+    table: pd.DataFrame,
+    first: str,
+    second: str,
+    higher_is_better: bool = True,
+) -> PairedComparisonResult:
+    """Wilcoxon signed-ranks test (decision) and paired t-test (reference) for two configs.
+
+    Demšar (2006), Section 3.1: Wilcoxon is recommended; the t-test is reported only
+    because the assignment mentions it (Sections 1.1 and 1.3).
+    """
+    for name in (first, second):
+        if name not in table.columns:
+            raise ValueError(f"Unknown configuration {name!r}")
+
+    sign = 1 if higher_is_better else -1
+    differences = sign * (table[second] - table[first])  # > 0 means `second` is better
+
+    r_plus, r_minus, p_value = wilcoxon_signed_ranks(differences)
+    t_result = sp_stats.ttest_1samp(differences, 0.0)
+
+    return PairedComparisonResult(
+        first=first,
+        second=second,
+        n_blocks=len(table),
+        r_plus=r_plus,
+        r_minus=r_minus,
+        wilcoxon_t=min(r_plus, r_minus),
+        wilcoxon_p_value=p_value,
+        t_statistic=float(t_result.statistic),
+        t_p_value=float(t_result.pvalue),
+    )
