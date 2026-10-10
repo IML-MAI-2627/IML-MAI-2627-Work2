@@ -287,3 +287,68 @@ def test_nemenyi_finds_two_differences_at_010_on_table6():
     assert not sig.loc["C4.5+cf", "C4.5+m"]
     assert not sig.loc["C4.5+cf", "C4.5+m+cf"]
     assert not sig.loc["C4.5+m", "C4.5+m+cf"]
+
+
+# Demšar (2006), Table 5(b): two-tailed Bonferroni-Dunn critical values.
+BONFERRONI_DUNN_Q_005 = {
+    2: 1.960,
+    3: 2.241,
+    4: 2.394,
+    5: 2.498,
+    6: 2.576,
+    7: 2.638,
+    8: 2.690,
+    9: 2.724,
+    10: 2.773,
+}
+BONFERRONI_DUNN_Q_010 = {
+    2: 1.645,
+    3: 1.960,
+    4: 2.128,
+    5: 2.241,
+    6: 2.326,
+    7: 2.394,
+    8: 2.450,
+    9: 2.498,
+    10: 2.539,
+}
+
+
+@pytest.mark.parametrize("k", [2, 3, 4, 5, 6, 7, 8, 10])
+def test_bonferroni_dunn_q_reproduces_demsar_table5b_at_005(k):
+    assert stats.bonferroni_dunn_q(k, 0.05) == pytest.approx(BONFERRONI_DUNN_Q_005[k], abs=2e-3)
+
+
+@pytest.mark.parametrize("k", range(2, 11))
+def test_bonferroni_dunn_q_reproduces_demsar_table5b_at_010(k):
+    assert stats.bonferroni_dunn_q(k, 0.10) == pytest.approx(BONFERRONI_DUNN_Q_010[k], abs=2e-3)
+
+
+def test_bonferroni_dunn_q_table5b_typo_at_k9():
+    # Table 5(b) prints 2.724 for k = 9, alpha = 0.05, but z_{1 - 0.05/16} = 2.734 and the
+    # neighbouring entries all follow that formula: the printed value looks like a typo.
+    assert stats.bonferroni_dunn_q(9, 0.05) == pytest.approx(2.734, abs=2e-3)
+
+
+def test_bonferroni_dunn_cd_reproduces_demsar_example():
+    # Demšar p. 14: q_0.05 for 4 classifiers is 2.394, so CD = 1.16
+    cd = stats.critical_difference(4, 14, stats.bonferroni_dunn_q(4, 0.05))
+    assert cd == pytest.approx(1.16, abs=0.01)
+
+
+def test_bonferroni_dunn_reproduces_demsar_conclusion_on_table6():
+    # Demšar p. 14: with C4.5 as control, C4.5+m+cf is significantly better
+    # (1.179 > 1.16), C4.5+cf is not (0.250), and C4.5+m is just below the CD (1.143).
+    result = stats.bonferroni_dunn_test(demsar_table6(), control="C4.5", alpha=0.05)
+
+    assert result.significant["C4.5+m+cf"]
+    assert not result.significant["C4.5+cf"]
+    assert not result.significant["C4.5+m"]
+    assert result.rank_differences["C4.5+m"] == pytest.approx(1.143, abs=1e-3)
+    assert result.rank_differences["C4.5+m+cf"] > 0  # better than the control
+    assert "C4.5" not in result.significant.index
+
+
+def test_bonferroni_dunn_rejects_unknown_control():
+    with pytest.raises(ValueError, match="Unknown control"):
+        stats.bonferroni_dunn_test(demsar_table6(), control="SVM")
