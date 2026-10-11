@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+import config
 from experiment_runner import ClassificationResult
 from models.random_forest import RandomForest
 
@@ -22,10 +23,10 @@ def mock_preprocessed():
 
 
 def test_parse_params_casts_integers():
-    rf = RandomForest({"n_estimators": "50", "max_depth": "10", "min_samples_split": "5"})
+    rf = RandomForest({"n_estimators": "50", "max_depth": "10", "min_samples_leaf": "5"})
     assert rf.params["n_estimators"] == 50
     assert rf.params["max_depth"] == 10
-    assert rf.params["min_samples_split"] == 5
+    assert rf.params["min_samples_leaf"] == 5
 
 
 def test_parse_params_handles_none_gracefully():
@@ -39,6 +40,50 @@ def test_parse_params_ignores_unknown_or_default_params():
     rf = RandomForest({"unknown_flag": "true"})
     assert "n_estimators" not in rf.params
     assert rf.params["unknown_flag"] == "true"
+    # Ensure reproducibility by default
+    assert rf.params["random_state"] == config.SEED
+
+
+def test_parse_params_handles_max_features():
+    # String categories
+    rf_sqrt = RandomForest({"max_features": "SQRT"})
+    assert rf_sqrt.params["max_features"] == "sqrt"
+
+    rf_log2 = RandomForest({"max_features": "log2"})
+    assert rf_log2.params["max_features"] == "log2"
+
+    # Float/Int casting
+    rf_float = RandomForest({"max_features": "0.5"})
+    assert rf_float.params["max_features"] == 0.5
+
+    rf_int = RandomForest({"max_features": "5"})
+    assert rf_int.params["max_features"] == 5
+
+    # None handling
+    rf_none = RandomForest({"max_features": "None"})
+    assert rf_none.params["max_features"] is None
+
+
+def test_parse_params_validates_criterion():
+    # Verify accepting valid param values in uppercase
+    rf = RandomForest({"criterion": "ENTROPY"})
+    assert rf.params["criterion"] == "entropy"
+
+    # Invalid criterion raises an error
+    with pytest.raises(ValueError, match="Invalid criterion 'patata'"):
+        RandomForest({"criterion": "patata"})
+
+
+def test_parse_params_injects_default_seed():
+    import config
+
+    rf = RandomForest({})
+    assert "random_state" in rf.params
+    assert rf.params["random_state"] == config.SEED
+
+    # If a seed is provided, it is saved
+    rf_custom = RandomForest({"random_state": "999"})
+    assert rf_custom.params["random_state"] == 999
 
 
 def test_prepare_data_success(mock_preprocessed):
