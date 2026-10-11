@@ -135,7 +135,7 @@ def test_mode_tie_goes_to_first_in_alphabetical_order(make_data):
 def test_numeric_column_with_all_values_missing_gives_no_nan(make_data):
     rows = [[None, 1.0, "red", "S"], [None, 2.0, "blue", "L"]]
     train = make_data(TrainMatrix, rows, ["no", "yes"])
-    out = Preprocessor().fit_transform(train)
+    out = Preprocessor(max_missing=1.0).fit_transform(train)
     np.testing.assert_array_equal(out.X_num[:, 0], [0.0, 0.0])
 
 
@@ -266,3 +266,44 @@ def test_vowel_onehot_width():
     assert "Speaker_Number" not in train.nom_names
     assert train.nom_names == ("Sex",)
     assert train.to_onehot().shape[1] == 10 + 2  # 10 numeric + Sex
+
+
+def test_too_many_missing_raises_listing_all_columns(make_data):
+    # columns a and b: 2 of 3 train values missing (67% > 50%)
+    rows = [[None, None, "red", "S"], [None, None, "blue", "L"], [1.0, 2.0, "red", "S"]]
+    train = make_data(TrainMatrix, rows, ["no", "yes", "no"])
+
+    with pytest.raises(ValueError, match=r"\['a', 'b'\]"):
+        Preprocessor().fit(train)
+
+
+def test_too_many_missing_are_dropped_with_flag(make_data):
+    rows = [[None, None, "red", "S"], [None, None, "blue", "L"], [1.0, 2.0, "red", "S"]]
+    train = make_data(TrainMatrix, rows, ["no", "yes", "no"])
+
+    prep = Preprocessor(on_missing="drop").fit(train)
+    out = prep.transform(train)
+
+    assert prep.dropped_missing_ == ("a", "b")
+    assert out.num_names == ()
+    assert out.X_num.shape == (3, 0)
+    assert out.nom_names == ("color", "size")
+
+
+def test_invalid_missing_options_are_rejected():
+    with pytest.raises(ValueError, match="max_missing"):
+        Preprocessor(max_missing=1.5)
+    with pytest.raises(ValueError, match="on_missing"):
+        Preprocessor(on_missing="ignore")
+
+
+def test_rows_with_unknown_class_are_removed_with_warning(train, make_data):
+    prep = Preprocessor().fit(train)
+    test = make_data(TestMatrix, [[1.0, 5.0, "red", "S"], [2.0, 5.0, "blue", "L"]], ["?", "yes"])
+
+    with pytest.warns(UserWarning, match="Removed 1 rows"):
+        out = prep.transform(test)
+
+    assert out.y.tolist() == ["yes"]
+    assert out.y_codes.tolist() == [1]
+    assert out.X_num.shape[0] == out.X_nom.shape[0] == 1
