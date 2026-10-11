@@ -204,7 +204,8 @@ test) method.
   - *Why:* Random Forest relies heavily on randomness (bootstrapping samples and randomly selecting feature subsets at each split). Injecting the seed guarantees 100% reproducible execution across all folds. (decided)
 - **Exposed `n_jobs`.** Allows setting the number of parallel jobs via CLI.
   - *Why:* Training 100+ trees is trivially parallelizable. Exposing this allows utilizing all CPU cores (`--n_jobs -1`) to drastically reduce experiment time on large datasets without altering mathematical results. (decided)
-
+- **Default values explicitly added**: If some params are not passed through the CLI, they are explicitly added into `params`.
+  - *Why:* We do this in order to visualize them in the csv, as the default param values wouldn't be captured and thus, we facilitate experiment discerning. (decided)
 ## Methods and libraries used
 
 | Area | Method / strategy | Implemented with | Where |

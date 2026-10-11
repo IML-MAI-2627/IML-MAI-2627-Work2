@@ -6,6 +6,16 @@ from experiment_runner import ClassificationResult
 from models import BaseClassifier
 from preprocessing import Preprocessed
 
+default_params = {
+    "n_estimators": 100,
+    "criterion": "gini",
+    "max_depth": None,
+    "min_samples_leaf": 1,
+    "random_state": config.SEED,
+    "n_jobs": None,
+    "max_features": "sqrt",
+}
+
 
 class RandomForest(BaseClassifier):
     def parse_params(self):
@@ -14,6 +24,8 @@ class RandomForest(BaseClassifier):
         for param in strict_int_params:
             if param in self.params:
                 self.params[param] = int(self.params[param])
+            else:
+                self.params[param] = default_params[param]
 
         # 2. Nullable Integer parameters (can be None)
         nullable_int_params = ["max_depth", "random_state", "n_jobs"]
@@ -23,6 +35,8 @@ class RandomForest(BaseClassifier):
                     self.params[param] = None
                 else:
                     self.params[param] = int(self.params[param])
+            else:
+                self.params[param] = default_params[param]
 
         # 3. max_features handling
         if "max_features" in self.params:
@@ -34,6 +48,8 @@ class RandomForest(BaseClassifier):
             else:
                 # If it's a number, cast to float if it has decimals, else to int
                 self.params["max_features"] = float(val) if "." in val else int(val)
+        else:
+            self.params["max_features"] = default_params["max_features"]
 
         # 4. Criterion validation
         if "criterion" in self.params:
@@ -44,10 +60,8 @@ class RandomForest(BaseClassifier):
                 raise ValueError(
                     f"Invalid criterion '{crit}'. Must be one of: 'gini', 'entropy', 'log_loss'."
                 )
-
-        # 5. Ensures reproducibility by default
-        if "random_state" not in self.params:
-            self.params["random_state"] = config.SEED
+        else:
+            self.params["criterion"] = default_params["criterion"]
 
     def prepare_data(
         self, train: Preprocessed, test: Preprocessed
