@@ -64,9 +64,6 @@ Status: **decided** / **pending**.
   columns. (decided)
 - **A nominal column with every train value missing** still raises `ValueError` if
   `max_missing` is set to 1.0: there is no mode to impute. (decided)
-- **A nominal column with every train value missing raises `ValueError`** in `fit`.
-  - *Why:* there is no mode to impute, and sklearn would silently remove the column. Drop the
-    column with `Preprocessor(drop=...)` instead. (decided)
 - **splice and vowel contain no missing values** (checked with `grep` on the raw files and with
   `missing.sum() == 0`). The code handles them anyway, as the assignment requires. (note)
 - **Limitation:** imputing removes the information that a value was missing, so the HEOM rule
