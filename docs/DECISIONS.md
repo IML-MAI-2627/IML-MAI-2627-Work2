@@ -61,9 +61,13 @@ Status: **decided** / **pending**.
       uppercase letters come before lowercase ones. (decided)
 - **A numeric column with every train value missing** gets mean 0 and becomes 0, so no NaN
   appears (`keep_empty_features=True`).
-- **A nominal column with every train value missing raises `ValueError`** in `fit`.
-    - *Why:* there is no mode to impute, and sklearn would silently remove the column. Drop the
-      column with `Preprocessor(drop=...)` instead. (decided)
+- **Columns with more than `max_missing` (default 50%) of their train values missing** are
+  handled by a flag, `on_missing`: `"error"` (default) stops and lists ALL of them at once;
+  `"drop"` removes them (stored in `dropped_missing_`). Measured on the train fold only. *Limitation:* since it is
+  decided per fold, in theory different folds could drop different
+  columns. (decided)
+- **A nominal column with every train value missing** still raises `ValueError` if
+  `max_missing` is set to 1.0: there is no mode to impute. (decided)
 - **splice and vowel contain no missing values** (checked with `grep` on the raw files and with
   `missing.sum() == 0`). The code handles them anyway, as the assignment requires. (note)
 - **Limitation:** imputing removes the information that a value was missing, so the HEOM rule
@@ -74,6 +78,9 @@ Status: **decided** / **pending**.
 
 - `y` is kept unchanged; `y_codes` gives the integer version (position in the header `class_values`).
 - The class is never part of `X_num` / `X_nom`, so it cannot leak into the distance. (decided)
+- **Rows with an unknown class (`?`) are removed with a warning** that reports how many. *Why:* they cannot be learned
+  from or evaluated. If they are in the test fold, that fold is
+  evaluated on fewer cases. splice and vowel have none. (decided)
 
 ### Dropped columns (vowel)
 
@@ -192,7 +199,7 @@ Status: **decided** / **pending**.
   implementations; the runner only orchestrates execution and collects common metrics. (decided)
 - **Preprocessed folds are cached** (`load_fold`, `functools.lru_cache`). Each fold is parsed and preprocessed once per
   process and reused by every configuration.
-  - *Consequence:* classifiers must never modify `train` or `test` in place. (decided)
+    - *Consequence:* classifiers must never modify `train` or `test` in place. (decided)
 - **Units in the CSV:** `accuracy` is a fraction in [0,1]; `storage` is a percentage in [0,100].
     - *Why:* storage is reported as a percentage of the original training set, accuracy keeps the usual fraction.
       Convert when building tables. (decided)
@@ -320,31 +327,33 @@ Status: **decided** / **pending**.
 
 ## Methods and libraries used
 
-| Area                               | Method / strategy                                                                                                   | Implemented with                                                             | Where                                 |
-|------------------------------------|---------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|---------------------------------------|
-| Reading ARFF                       | Parse header and rows; keep features, missing mask and class apart                                                  | `scipy.io.arff.loadarff` + own wrapper (`TrainMatrix` / `TestMatrix`)        | `src/arff_parser.py`                  |
-| Fold handling                      | The 10 predefined train/test pairs, read as they are                                                                | Own code (`config.fold_paths`, `load_fold`)                                  | `src/config.py`, `src/arff_parser.py` |
-| Dropped columns                    | Configurable list, defaults per dataset                                                                             | Own code (`DEFAULT_DROP`)                                                    | `src/preprocessing.py`                |
-| Numeric missing values             | Train mean                                                                                                          | `sklearn.impute.SimpleImputer(strategy="mean", keep_empty_features=True)`    | `src/preprocessing.py`                |
-| Numeric scaling                    | Min-max to [0,1] with the train range, test clipped                                                                 | `sklearn.preprocessing.MinMaxScaler(clip=True)`                              | `src/preprocessing.py`                |
-| Constant numeric column            | Set to 0                                                                                                            | Own code (numpy), after the scaler                                           | `src/preprocessing.py`                |
-| Nominal missing values             | Train mode on the text values; ties go to the first in alphabetical order                                           | `sklearn.impute.SimpleImputer(strategy="most_frequent")`                     | `src/preprocessing.py`                |
-| Nominal column with no train value | `ValueError` in `fit`                                                                                               | Own code (check before the pipeline)                                         | `src/preprocessing.py`                |
-| Nominal encoding                   | Integer code = position in the ARFF header, one column per attribute; a value not in the header raises `ValueError` | `sklearn.preprocessing.OrdinalEncoder(categories=header)`                    | `src/preprocessing.py`                |
-| No columns of one type             | Skip that pipeline (sklearn rejects 0 columns; splice has no numeric ones)                                          | Own code (`if`)                                                              | `src/preprocessing.py`                |
-| Chaining the steps                 | Fit on train, transform train and test                                                                              | `sklearn.pipeline.make_pipeline` (one pipeline for numeric, one for nominal) | `src/preprocessing.py`                |
-| One-hot for SVM / RF               | One 0/1 column per header value, built from the integer codes                                                       | Own code (`np.eye`) in `Preprocessed.to_onehot()`                            | `src/preprocessing.py`                |
-| Class labels                       | Kept unchanged; integer code = position in the header                                                               | Own code (dict lookup)                                                       | `src/preprocessing.py`                |
-| Single ML Entry point              | Created a single entry point for all the ML model runs                                                              | Own code                                                                     | `experiments/run.py`                  |
-| Experiment runner                  | Run the 10 predefined folds and collect common evaluation metrics                                                   | Own code                                                                     | `src/experiment_runner.py`            |
-| Result export                      | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                 | `src/experiment_runner.py`            |
-| Random Forest model                | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                    | `src/models/random_forest.py`         |
-| Support Vector Machine model       | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                            | `src/models/svm.py`                   |
-| EDA figures                        | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                      | `experiments/eda.py`                  |
-| EDA projection                     | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                | `experiments/eda.py`                  |
-| EDA export                         | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                     | `experiments/eda.py`                  |
+| Area                                 | Method / strategy                                                                                                   | Implemented with                                                             | Where                                 |
+|--------------------------------------|---------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|---------------------------------------|
+| Reading ARFF                         | Parse header and rows; keep features, missing mask and class apart                                                  | `scipy.io.arff.loadarff` + own wrapper (`TrainMatrix` / `TestMatrix`)        | `src/arff_parser.py`                  |
+| Fold handling                        | The 10 predefined train/test pairs, read as they are                                                                | Own code (`config.fold_paths`, `load_fold`)                                  | `src/config.py`, `src/arff_parser.py` |
+| Dropped columns                      | Configurable list, defaults per dataset                                                                             | Own code (`DEFAULT_DROP`)                                                    | `src/preprocessing.py`                |
+| Numeric missing values               | Train mean                                                                                                          | `sklearn.impute.SimpleImputer(strategy="mean", keep_empty_features=True)`    | `src/preprocessing.py`                |
+| Numeric scaling                      | Min-max to [0,1] with the train range, test clipped                                                                 | `sklearn.preprocessing.MinMaxScaler(clip=True)`                              | `src/preprocessing.py`                |
+| Constant numeric column              | Set to 0                                                                                                            | Own code (numpy), after the scaler                                           | `src/preprocessing.py`                |
+| Nominal missing values               | Train mode on the text values; ties go to the first in alphabetical order                                           | `sklearn.impute.SimpleImputer(strategy="most_frequent")`                     | `src/preprocessing.py`                |
+| Columns with too many missing values | More than `max_missing` (50%) in train: `ValueError` listing all of them, or drop with `on_missing="drop"`          | Own code (check before the pipelines)                                        | `src/preprocessing.py`                |
+| Rows with an unknown class           | Removed with a warning                                                                                              | Own code (boolean mask)                                                      | `src/preprocessing.py`                |
+| Nominal encoding                     | Integer code = position in the ARFF header, one column per attribute; a value not in the header raises `ValueError` | `sklearn.preprocessing.OrdinalEncoder(categories=header)`                    | `src/preprocessing.py`                |
+| No columns of one type               | Skip that pipeline (sklearn rejects 0 columns; splice has no numeric ones)                                          | Own code (`if`)                                                              | `src/preprocessing.py`                |
+| Chaining the steps                   | Fit on train, transform train and test                                                                              | `sklearn.pipeline.make_pipeline` (one pipeline for numeric, one for nominal) | `src/preprocessing.py`                |
+| One-hot for SVM / RF                 | One 0/1 column per header value, built from the integer codes                                                       | Own code (`np.eye`) in `Preprocessed.to_onehot()`                            | `src/preprocessing.py`                |
+| Class labels                         | Kept unchanged; integer code = position in the header                                                               | Own code (dict lookup)                                                       | `src/preprocessing.py`                |
+| Single ML Entry point                | Created a single entry point for all the ML model runs                                                              | Own code                                                                     | `experiments/run.py`                  |
+| Experiment runner                    | Run the 10 predefined folds and collect common evaluation metrics                                                   | Own code                                                                     | `src/experiment_runner.py`            |
+| Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                 | `src/experiment_runner.py`            |
+| Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                    | `src/models/random_forest.py`         |
+| Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                            | `src/models/svm.py`                   |
+| EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                      | `experiments/eda.py`                  |
+| EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                | `experiments/eda.py`                  |
+| EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                     | `experiments/eda.py`                  |
 
 Not used (on purpose):
+
 
 - **scikit-learn in the kNN or in the instance reduction.** Both must be our own code.
 - **`sklearn.preprocessing.OneHotEncoder`.** The one-hot is built with `np.eye` from the integer

@@ -15,6 +15,7 @@ Each attribute stays as ONE column (needed for the HEOM overlap distance in the 
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -73,14 +74,25 @@ class Preprocessed:
 class Preprocessor:
     """Learns the statistics on the train fold (``fit``) and applies them (``transform``)."""
 
-    def __init__(self, drop: tuple[str, ...] | list[str] = ()) -> None:
+    def __init__(
+        self,
+        drop: tuple[str, ...] | list[str] = (),
+        max_missing: float = 0.5,
+        on_missing: str = "error",
+    ) -> None:
+        if not 0 <= max_missing <= 1:
+            raise ValueError("max_missing must be between 0 and 1")
+        if on_missing not in ("error", "drop"):
+            raise ValueError("on_missing must be 'error' or 'drop'")
         self.drop = tuple(drop)
+        self.max_missing = max_missing
+        self.on_missing = on_missing
         self._fitted = False
 
     @classmethod
-    def for_dataset(cls, dataset: str) -> Preprocessor:
+    def for_dataset(cls, dataset: str, **kwargs) -> Preprocessor:
         """Preprocessor with the default dropped columns of a dataset."""
-        return cls(drop=DEFAULT_DROP.get(dataset, ()))
+        return cls(drop=DEFAULT_DROP.get(dataset, ()), **kwargs)
 
     def fit(self, train: TrainMatrix) -> Preprocessor:
         """Fit the sklearn pipelines (min/max/mean and mode) on the train fold only."""
@@ -96,6 +108,18 @@ class Preprocessor:
 
         # Which columns we keep, split by type
         kept = [j for j, name in enumerate(train.attribute_names) if name not in self.drop]
+        # Own rule: columns with too many missing train values (fraction > max_missing).
+        # Measured on the train fold only, like every other statistic (no leakage).
+        too_missing = [j for j in kept if train.missing[:, j].mean() > self.max_missing]
+        too_missing_names = [train.attribute_names[j] for j in too_missing]
+        if too_missing_names and self.on_missing == "error":
+            raise ValueError(
+                f"Columns with more than {self.max_missing:.0%} of train values missing: "
+                f"{too_missing_names}. Add them to drop=... or use on_missing='drop'."
+            )
+        self.dropped_missing_ = tuple(too_missing_names)
+        kept = [j for j in kept if j not in too_missing]
+
         self.num_idx_ = [j for j in kept if train.attribute_types[j] == NUMERIC]
         self.nom_idx_ = [j for j in kept if train.attribute_types[j] != NUMERIC]
         self.num_names_ = tuple(train.attribute_names[j] for j in self.num_idx_)
@@ -169,14 +193,19 @@ class Preprocessor:
         if self.nom_idx_:  # own rule: sklearn rejects 0 columns
             X_nom = self._nom_pipeline.transform(self._nominal_block(data)).astype(np.int64)
 
-        # Class: kept as it is, plus an integer version
+        # Class: kept as it is, plus an integer version.
+        # Own rule: a row whose class is unknown ("?" or any value not in the header) cannot
+        # be learned from or evaluated, so it is removed with a warning instead of stopping.
         class_code = {label: i for i, label in enumerate(self.class_values_)}
-        y_codes = np.array([class_code[label] for label in data.y], dtype=np.int64)
+        known = np.array([label in class_code for label in data.y], dtype=bool)
+        if not known.all():
+            warnings.warn(f"Removed {(~known).sum()} rows with an unknown class", stacklevel=2)
+        y_codes = np.array([class_code[label] for label in data.y[known]], dtype=np.int64)
 
         return Preprocessed(
-            X_num=X_num,
-            X_nom=X_nom,
-            y=data.y.copy(),
+            X_num=X_num[known],
+            X_nom=X_nom[known],
+            y=data.y[known],
             y_codes=y_codes,
             num_names=self.num_names_,
             nom_names=self.nom_names_,
