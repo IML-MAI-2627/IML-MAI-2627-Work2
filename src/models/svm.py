@@ -6,6 +6,18 @@ from experiment_runner import ClassificationResult
 from models import BaseClassifier
 from preprocessing import Preprocessed
 
+default_params = {
+    "C": 1.0,
+    "kernel": "rbf",
+    "degree": 3,
+    "gamma": "scale",
+    "coef0": 0.0,
+    "tol": 0.001,
+    "class_weight": None,
+    "max_iter": -1,
+    "random_state": config.SEED,
+}
+
 
 class SVM(BaseClassifier):
     def parse_params(self):
@@ -18,12 +30,16 @@ class SVM(BaseClassifier):
         for param in float_params:
             if param in self.params:
                 self.params[param] = float(self.params[param])
+            else:
+                self.params[param] = default_params[param]
 
         # 2. Strict Integer parameters (cannot be None)
         int_params = ["degree", "max_iter"]
         for param in int_params:
             if param in self.params:
                 self.params[param] = int(self.params[param])
+            else:
+                self.params[param] = default_params[param]
 
         # 3. Parameters that CAN be None (e.g., random_state)
         if "random_state" in self.params:
@@ -31,6 +47,8 @@ class SVM(BaseClassifier):
                 self.params["random_state"] = None
             else:
                 self.params["random_state"] = int(self.params["random_state"])
+        else:
+            self.params["random_state"] = default_params["random_state"]
 
         # 4. Gamma handling (can be string or float, cannot be None)
         if "gamma" in self.params:
@@ -39,6 +57,8 @@ class SVM(BaseClassifier):
                 self.params["gamma"] = gamma_val
             else:
                 self.params["gamma"] = float(self.params["gamma"])
+        else:
+            self.params["gamma"] = default_params["gamma"]
 
         # 5. Kernel validation (Fail-fast)
         if "kernel" in self.params:
@@ -49,6 +69,8 @@ class SVM(BaseClassifier):
                 raise ValueError(
                     f"Invalid kernel '{kernel_val}'. Must be 'linear', 'poly', 'rbf', or 'sigmoid'."
                 )
+        else:
+            self.params["kernel"] = default_params["kernel"]
 
         # 6. Class weight handling
         if "class_weight" in self.params:
@@ -59,10 +81,8 @@ class SVM(BaseClassifier):
                 self.params["class_weight"] = None
             else:
                 raise ValueError("class_weight via CLI only supports 'balanced' or 'None'.")
-
-        # 7. Ensure reproducibility by default
-        if "random_state" not in self.params:
-            self.params["random_state"] = config.SEED
+        else:
+            self.params["class_weight"] = default_params["class_weight"]
 
     def prepare_data(
         self, train: Preprocessed, test: Preprocessed

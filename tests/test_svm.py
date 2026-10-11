@@ -1,4 +1,3 @@
-# tests/test_svm.py
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -55,7 +54,6 @@ def test_parse_params_strict_types_fail_on_none():
 
 
 def test_parse_params_handles_random_state():
-
     # Handled as None
     svm_none = SVM({"random_state": "none"})
     assert svm_none.params["random_state"] is None
@@ -99,12 +97,22 @@ def test_parse_params_validates_class_weight():
         SVM({"class_weight": "balanced_subsample"})
 
 
-def test_parse_params_ignores_unknown_or_default_params():
-    import config
-
+def test_parse_params_injects_all_defaults():
+    # If parameters are omitted, it should inject our predefined defaults
     svm = SVM({"unknown_flag": "true"})
-    assert "C" not in svm.params
+
+    # Unknown flags are kept
     assert svm.params["unknown_flag"] == "true"
+
+    # Defaults are injected
+    assert svm.params["C"] == 1.0
+    assert svm.params["kernel"] == "rbf"
+    assert svm.params["degree"] == 3
+    assert svm.params["gamma"] == "scale"
+    assert svm.params["coef0"] == 0.0
+    assert svm.params["tol"] == 0.001
+    assert svm.params["class_weight"] is None
+    assert svm.params["max_iter"] == -1
     assert svm.params["random_state"] == config.SEED
 
 
@@ -170,8 +178,19 @@ def test_fit_predict_execution(mock_svc_class, mock_preprocessed):
     svm = SVM({"C": 2.0, "kernel": "linear"})
     result = svm.fit_predict(train, test)
 
-    # Ensure sklearn SVC was instantiated with our cast parameters
-    mock_svc_class.assert_called_once_with(C=2.0, kernel="linear", random_state=config.SEED)
+    # Ensure sklearn SVC was instantiated with our exact parameters
+    # AND all the defaults explicitly injected
+    mock_svc_class.assert_called_once_with(
+        C=2.0,
+        kernel="linear",
+        degree=3,
+        gamma="scale",
+        coef0=0.0,
+        tol=0.001,
+        class_weight=None,
+        max_iter=-1,
+        random_state=config.SEED,
+    )
 
     assert mock_svc_instance.fit.called
     assert mock_svc_instance.predict.called
