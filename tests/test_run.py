@@ -72,7 +72,6 @@ def test_run_random_forest_with_dynamic_params(tmp_path, require_datasets):
             "2",
             "--max_depth",
             "None",
-            "--verbose",
         ],
         capture_output=True,
         text=True,
@@ -91,7 +90,44 @@ def test_run_random_forest_with_dynamic_params(tmp_path, require_datasets):
     params_string = rows[0]["params"]
     assert "n_estimators=2" in params_string
     assert "max_depth=None" in params_string
-    assert "verbose=True" in params_string
+
+
+def test_run_svm_with_dynamic_params(tmp_path, require_datasets):
+    out_file = tmp_path / "svm_out.csv"
+
+    # We use a very small n_estimators so the test runs blazingly fast
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--dataset",
+            "vowel",
+            "--classifier",
+            "svm",
+            "--out",
+            str(out_file),
+            "--C",
+            "2",
+            "--kernel",
+            "poly",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    # Assert CSV captured the dynamic parameters properly
+    with out_file.open("r", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+
+    assert len(rows) == 10
+    assert rows[0]["model"] == "Support Vector Machine"
+
+    # Check that parameters were serialized into the CSV
+    params_string = rows[0]["params"]
+    assert "C=2" in params_string
+    assert "kernel=poly" in params_string
 
 
 def test_run_rejects_malformed_unknown_args():

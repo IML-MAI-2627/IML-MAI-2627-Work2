@@ -19,6 +19,11 @@ default_params = {
 
 class RandomForest(BaseClassifier):
     def parse_params(self):
+        # 0. Fail-fast on unknown parameters
+        unknown_params = [p for p in self.params if p not in default_params]
+        if unknown_params:
+            raise ValueError(f"Unknown Random Forest parameters provided: {unknown_params}")
+
         # 1. Strict Integer parameters (cannot be None)
         strict_int_params = ["n_estimators", "min_samples_leaf"]
         for param in strict_int_params:
