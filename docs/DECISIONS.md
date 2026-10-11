@@ -57,6 +57,13 @@ Status: **decided** / **pending**.
     uppercase letters come before lowercase ones. (decided)
 - **A numeric column with every train value missing** gets mean 0 and becomes 0, so no NaN
   appears (`keep_empty_features=True`).
+- **Columns with more than `max_missing` (default 50%) of their train values missing** are
+  handled by a flag, `on_missing`: `"error"` (default) stops and lists ALL of them at once;
+  `"drop"` removes them (stored in `dropped_missing_`). Measured on the train fold only.
+  *Limitation:* since it is decided per fold, in theory different folds could drop different
+  columns. (decided)
+- **A nominal column with every train value missing** still raises `ValueError` if
+  `max_missing` is set to 1.0: there is no mode to impute. (decided)
 - **A nominal column with every train value missing raises `ValueError`** in `fit`.
   - *Why:* there is no mode to impute, and sklearn would silently remove the column. Drop the
     column with `Preprocessor(drop=...)` instead. (decided)
@@ -69,6 +76,9 @@ Status: **decided** / **pending**.
 ### Class
 - `y` is kept unchanged; `y_codes` gives the integer version (position in the header `class_values`).
 - The class is never part of `X_num` / `X_nom`, so it cannot leak into the distance. (decided)
+- **Rows with an unknown class (`?`) are removed with a warning** that reports how many.
+  *Why:* they cannot be learned from or evaluated. If they are in the test fold, that fold is
+  evaluated on fewer cases. splice and vowel have none. (decided)
 
 ### Dropped columns (vowel)
 - **`Train_or_Test` is dropped.** It only records which half of the original UCI split a row came
@@ -217,7 +227,8 @@ test) method.
 | Numeric scaling | Min-max to [0,1] with the train range, test clipped | `sklearn.preprocessing.MinMaxScaler(clip=True)` | `src/preprocessing.py` |
 | Constant numeric column | Set to 0 | Own code (numpy), after the scaler | `src/preprocessing.py` |
 | Nominal missing values | Train mode on the text values; ties go to the first in alphabetical order | `sklearn.impute.SimpleImputer(strategy="most_frequent")` | `src/preprocessing.py` |
-| Nominal column with no train value | `ValueError` in `fit` | Own code (check before the pipeline) | `src/preprocessing.py` |
+| Columns with too many missing values | More than `max_missing` (50%) in train: `ValueError` listing all of them, or drop with `on_missing="drop"` | Own code (check before the pipelines) | `src/preprocessing.py` |
+| Rows with an unknown class | Removed with a warning | Own code (boolean mask) | `src/preprocessing.py` |
 | Nominal encoding | Integer code = position in the ARFF header, one column per attribute; a value not in the header raises `ValueError` | `sklearn.preprocessing.OrdinalEncoder(categories=header)` | `src/preprocessing.py` |
 | No columns of one type | Skip that pipeline (sklearn rejects 0 columns; splice has no numeric ones) | Own code (`if`) | `src/preprocessing.py` |
 | Chaining the steps | Fit on train, transform train and test | `sklearn.pipeline.make_pipeline` (one pipeline for numeric, one for nominal) | `src/preprocessing.py` |
