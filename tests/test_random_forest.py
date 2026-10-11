@@ -22,17 +22,32 @@ def mock_preprocessed():
     return _make_mock
 
 
-def test_parse_params_casts_integers():
-    rf = RandomForest({"n_estimators": "50", "max_depth": "10", "min_samples_leaf": "5"})
+def test_parse_params_casts_strict_ints():
+    rf = RandomForest({"n_estimators": "50", "min_samples_leaf": "5"})
     assert rf.params["n_estimators"] == 50
-    assert rf.params["max_depth"] == 10
     assert rf.params["min_samples_leaf"] == 5
 
 
-def test_parse_params_handles_none_gracefully():
-    rf = RandomForest({"max_depth": "None", "random_state": "none"})
-    assert rf.params["max_depth"] is None
-    assert rf.params["random_state"] is None
+def test_parse_params_strict_types_fail_on_none():
+    # Params that cannot be None
+    with pytest.raises(ValueError):
+        RandomForest({"n_estimators": "None"})
+    with pytest.raises(ValueError):
+        RandomForest({"criterion": "None"})
+    with pytest.raises(ValueError):
+        RandomForest({"min_samples_leaf": "None"})
+
+
+def test_parse_params_handles_nullable_ints():
+    rf_none = RandomForest({"max_depth": "None", "random_state": "none", "n_jobs": "none"})
+    assert rf_none.params["max_depth"] is None
+    assert rf_none.params["random_state"] is None
+    assert rf_none.params["n_jobs"] is None
+
+    rf_int = RandomForest({"max_depth": "10", "random_state": "42", "n_jobs": "-1"})
+    assert rf_int.params["max_depth"] == 10
+    assert rf_int.params["random_state"] == 42
+    assert rf_int.params["n_jobs"] == -1
 
 
 def test_parse_params_ignores_unknown_or_default_params():
@@ -75,8 +90,6 @@ def test_parse_params_validates_criterion():
 
 
 def test_parse_params_injects_default_seed():
-    import config
-
     rf = RandomForest({})
     assert "random_state" in rf.params
     assert rf.params["random_state"] == config.SEED

@@ -9,19 +9,22 @@ from preprocessing import Preprocessed
 
 class RandomForest(BaseClassifier):
     def parse_params(self):
-        # List of parameters that must be integers if provided.
-        # Other parameters are ignored.
-        int_params = ["n_estimators", "max_depth", "min_samples_leaf", "random_state"]
-
-        for param in int_params:
+        # 1. Strict Integer parameters (cannot be None)
+        strict_int_params = ["n_estimators", "min_samples_leaf"]
+        for param in strict_int_params:
             if param in self.params:
-                # Handle cases where the user types "--max_depth None" in the CLI
+                self.params[param] = int(self.params[param])
+
+        # 2. Nullable Integer parameters (can be None)
+        nullable_int_params = ["max_depth", "random_state", "n_jobs"]
+        for param in nullable_int_params:
+            if param in self.params:
                 if str(self.params[param]).lower() == "none":
                     self.params[param] = None
                 else:
                     self.params[param] = int(self.params[param])
 
-        # max_features can be int, float, "sqrt", "log2", or None
+        # 3. max_features handling
         if "max_features" in self.params:
             val = str(self.params["max_features"]).lower()
             if val == "none":
@@ -32,6 +35,7 @@ class RandomForest(BaseClassifier):
                 # If it's a number, cast to float if it has decimals, else to int
                 self.params["max_features"] = float(val) if "." in val else int(val)
 
+        # 4. Criterion validation
         if "criterion" in self.params:
             crit = str(self.params["criterion"]).lower()
             if crit in ["gini", "entropy", "log_loss"]:
@@ -40,7 +44,8 @@ class RandomForest(BaseClassifier):
                 raise ValueError(
                     f"Invalid criterion '{crit}'. Must be one of: 'gini', 'entropy', 'log_loss'."
                 )
-        # Ensures reproducibility by default
+
+        # 5. Ensures reproducibility by default
         if "random_state" not in self.params:
             self.params["random_state"] = config.SEED
 

@@ -81,7 +81,9 @@ These parameters are passed as optional flags. If omitted, the model will fall b
 
 - `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn default (1).
 
-- `--random_state` (integer): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
+- `--random_state` (integer, None): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
+
+- `--n_jobs` (integer, None): The number of jobs to run in parallel. fit, predict, decision_path and apply are all parallelized over the trees. Default: None
 
     Example:
     ```bash
