@@ -23,14 +23,14 @@ def mock_preprocessed():
 
 
 def test_parse_params_casts_strict_floats():
-    svm = SVM({"C": "1.5", "coef0": "0.5", "tol": "1e-4"})
+    svm = SVM({"C": "1.5", "kernel": "sigmoid", "coef0": "0.5", "tol": "1e-4"})
     assert svm.params["C"] == 1.5
     assert svm.params["coef0"] == 0.5
     assert svm.params["tol"] == 0.0001
 
 
 def test_parse_params_casts_strict_ints():
-    svm = SVM({"degree": "4", "max_iter": "-1"})
+    svm = SVM({"kernel": "poly", "degree": "4", "max_iter": "-1"})
     assert svm.params["degree"] == 4
     assert svm.params["max_iter"] == -1
 
@@ -97,19 +97,46 @@ def test_parse_params_validates_class_weight():
         SVM({"class_weight": "balanced_subsample"})
 
 
+def test_parse_params_rejects_unknown():
+    # To keep fail-fast, unknown parameters raise an error
+    with pytest.raises(ValueError, match="Unknown SVM parameters provided"):
+        SVM({"unknown_flag": "true"})
+
+
+def test_parse_params_prunes_inactive_kernel_params():
+    # linear: prunes gamma, degree, coef0
+    svm_linear = SVM({"kernel": "linear", "gamma": "scale", "degree": 5, "coef0": 1.0})
+    assert "gamma" not in svm_linear.params
+    assert "degree" not in svm_linear.params
+    assert "coef0" not in svm_linear.params
+
+    # rbf (default): prunes degree, coef0
+    svm_rbf = SVM({"kernel": "rbf", "degree": 5, "coef0": 1.0})
+    assert "gamma" in svm_rbf.params
+    assert "degree" not in svm_rbf.params
+    assert "coef0" not in svm_rbf.params
+
+    # sigmoid: prunes degree
+    svm_sigmoid = SVM({"kernel": "sigmoid", "degree": 5, "coef0": 1.0})
+    assert "gamma" in svm_sigmoid.params
+    assert "coef0" in svm_sigmoid.params
+    assert "degree" not in svm_sigmoid.params
+
+    # poly: keeps everything
+    svm_poly = SVM({"kernel": "poly", "gamma": "scale", "degree": 5, "coef0": 1.0})
+    assert "gamma" in svm_poly.params
+    assert "degree" in svm_poly.params
+    assert "coef0" in svm_poly.params
+
+
 def test_parse_params_injects_all_defaults():
     # If parameters are omitted, it should inject our predefined defaults
-    svm = SVM({"unknown_flag": "true"})
-
-    # Unknown flags are kept
-    assert svm.params["unknown_flag"] == "true"
+    svm = SVM({})
 
     # Defaults are injected
     assert svm.params["C"] == 1.0
     assert svm.params["kernel"] == "rbf"
-    assert svm.params["degree"] == 3
     assert svm.params["gamma"] == "scale"
-    assert svm.params["coef0"] == 0.0
     assert svm.params["tol"] == 0.001
     assert svm.params["class_weight"] is None
     assert svm.params["max_iter"] == -1
@@ -175,14 +202,14 @@ def test_fit_predict_execution(mock_svc_class, mock_preprocessed):
     train = mock_preprocessed(n_samples=5)
     test = mock_preprocessed(n_samples=3)
 
-    svm = SVM({"C": 2.0, "kernel": "linear"})
+    svm = SVM({"C": 2.0, "kernel": "poly"})
     result = svm.fit_predict(train, test)
 
     # Ensure sklearn SVC was instantiated with our exact parameters
     # AND all the defaults explicitly injected
     mock_svc_class.assert_called_once_with(
         C=2.0,
-        kernel="linear",
+        kernel="poly",
         degree=3,
         gamma="scale",
         coef0=0.0,

@@ -216,6 +216,10 @@ test) method.
   - *Why:* These parameters represent mathematical constants or hard limits in the scikit-learn backend. Passing a `None` value crashes the underlying C/Cython solver. Rejecting them at the parsing stage provides immediate, clear feedback to the user. (decided)
 - **Explicit string validation for `kernel` and `class_weight`.** Typographical errors (e.g., `--kernel patata`) immediately raise a `ValueError`.
   - *Why:* Fail-fast principle. It prevents the model from silently falling back to a default configuration, ensuring the user is actually testing the parameters they intended to test. (decided)
+- **Rejection of unknown parameters.** Providing any parameter via CLI that is not in the model's `default_params` dictionary immediately raises a `ValueError`.
+  - *Why:* Fail-fast principle. It guarantees that typos (e.g., `--kernal poly`) break execution instantly instead of being silently ignored by the parameter parser, ensuring user intent matches execution perfectly. (decided)
+- **Kernel-based pruning of inactive hyperparameters.** After parsing, the algorithm dynamically removes variables from `self.params` that have no mathematical effect on the chosen kernel (e.g., `degree` is dropped if kernel is `rbf`; `gamma` is dropped if kernel is `linear`).
+  - *Why:* This prevents the `experiments/run.py` CSV exporter from recording mathematically identical executions as distinct configuration strings. It heavily optimizes and cleans the output of exhaustive Grid Search processes. (decided)
 - **Data prepared via One-Hot Encoding (`to_onehot()`).** The SVM receives the numeric columns followed by binary columns for nominals.
   - *Why:* Like the Random Forest, standard SVMs interpret distance geometrically. Feeding raw integer categorical codes would create false distances and orderings between nominal values (e.g., A/C/G/T). One-hot encoding ensures orthogonal geometric distances between categories. (decided)
 

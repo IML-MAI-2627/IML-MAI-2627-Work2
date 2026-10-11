@@ -21,46 +21,13 @@ default_params = {
 
 class SVM(BaseClassifier):
     def parse_params(self):
-        # 1. Strict Float parameters (cannot be None)
-        float_params = [
-            "C",
-            "coef0",
-            "tol",
-        ]
-        for param in float_params:
-            if param in self.params:
-                self.params[param] = float(self.params[param])
-            else:
-                self.params[param] = default_params[param]
+        # 1. Fail-fast on unknown parameters
+        unknown_params = [p for p in self.params if p not in default_params]
+        if unknown_params:
+            print(f"Unknown SVM parameters provided: {unknown_params}")
+            raise ValueError(f"Unknown SVM parameters provided: {unknown_params}")
 
-        # 2. Strict Integer parameters (cannot be None)
-        int_params = ["degree", "max_iter"]
-        for param in int_params:
-            if param in self.params:
-                self.params[param] = int(self.params[param])
-            else:
-                self.params[param] = default_params[param]
-
-        # 3. Parameters that CAN be None (e.g., random_state)
-        if "random_state" in self.params:
-            if str(self.params["random_state"]).lower() == "none":
-                self.params["random_state"] = None
-            else:
-                self.params["random_state"] = int(self.params["random_state"])
-        else:
-            self.params["random_state"] = default_params["random_state"]
-
-        # 4. Gamma handling (can be string or float, cannot be None)
-        if "gamma" in self.params:
-            gamma_val = str(self.params["gamma"]).lower()
-            if gamma_val in ["scale", "auto"]:
-                self.params["gamma"] = gamma_val
-            else:
-                self.params["gamma"] = float(self.params["gamma"])
-        else:
-            self.params["gamma"] = default_params["gamma"]
-
-        # 5. Kernel validation (Fail-fast)
+        # 2. Kernel validation (Fail-fast) - Done early so we can prune later
         if "kernel" in self.params:
             kernel_val = str(self.params["kernel"]).lower()
             if kernel_val in ["linear", "poly", "rbf", "sigmoid"]:
@@ -72,7 +39,42 @@ class SVM(BaseClassifier):
         else:
             self.params["kernel"] = default_params["kernel"]
 
-        # 6. Class weight handling
+        # 3. Strict Float parameters (cannot be None)
+        float_params = ["C", "coef0", "tol"]
+        for param in float_params:
+            if param in self.params:
+                self.params[param] = float(self.params[param])
+            else:
+                self.params[param] = default_params[param]
+
+        # 4. Strict Integer parameters (cannot be None)
+        int_params = ["degree", "max_iter"]
+        for param in int_params:
+            if param in self.params:
+                self.params[param] = int(self.params[param])
+            else:
+                self.params[param] = default_params[param]
+
+        # 5. Parameters that CAN be None (e.g., random_state)
+        if "random_state" in self.params:
+            if str(self.params["random_state"]).lower() == "none":
+                self.params["random_state"] = None
+            else:
+                self.params["random_state"] = int(self.params["random_state"])
+        else:
+            self.params["random_state"] = default_params["random_state"]
+
+        # 6. Gamma handling (can be string or float, cannot be None)
+        if "gamma" in self.params:
+            gamma_val = str(self.params["gamma"]).lower()
+            if gamma_val in ["scale", "auto"]:
+                self.params["gamma"] = gamma_val
+            else:
+                self.params["gamma"] = float(self.params["gamma"])
+        else:
+            self.params["gamma"] = default_params["gamma"]
+
+        # 7. Class weight handling
         if "class_weight" in self.params:
             cw_val = str(self.params["class_weight"]).lower()
             if cw_val == "balanced":
@@ -83,6 +85,18 @@ class SVM(BaseClassifier):
                 raise ValueError("class_weight via CLI only supports 'balanced' or 'None'.")
         else:
             self.params["class_weight"] = default_params["class_weight"]
+
+        # 8. Prune inactive parameters based on chosen kernel
+        kernel = self.params["kernel"]
+
+        if kernel == "linear":
+            self.params.pop("gamma", None)
+        # Degree is only used by the poly kernerl
+        if kernel != "poly":
+            self.params.pop("degree", None)
+        # coef0 is ignored in linear kernel
+        if kernel not in ["poly", "sigmoid"]:
+            self.params.pop("coef0", None)
 
     def prepare_data(
         self, train: Preprocessed, test: Preprocessed

@@ -66,7 +66,7 @@ def main() -> int:
         dataset=args.dataset,
         classifier=model_instance.fit_predict,
         model_name=CLASSIFIERS[args.classifier][1],
-        params=params,
+        params=model_instance.params,
     )
     output = args.out or config.RESULTS_DIR / f"{args.classifier}_{args.dataset}.csv"
     save_results(results, output)
