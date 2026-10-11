@@ -23,7 +23,13 @@ class ClassificationResult:
     storage: int
 
 
-Classifier = Callable[[Preprocessed, Preprocessed], ClassificationResult]
+Classifier = Callable[
+    [
+        Preprocessed,
+        Preprocessed,
+    ],
+    ClassificationResult,
+]
 
 
 @dataclass(frozen=True)
