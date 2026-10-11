@@ -165,9 +165,7 @@ test) method.
 
 ## Random Forest (issue #13, `src/models/random_forest.py`)
 
-### OOP Architecture and Scikit-learn integration
-- **Inherits from `BaseClassifier`.** The algorithm is encapsulated in a class that handles its own parameter validation and data preparation before training.
-  - *Why:* Integrates perfectly with the unified CLI runner (`experiments/run.py`), keeping the main execution loop model-agnostic and adhering to the project's single-responsibility design. (decided)
+### Scikit-learn integration
 - **Uses `sklearn.ensemble.RandomForestClassifier`.**
   - *Why:* The assignment explicitly allows using the scikit-learn library implementation for the Random Forest and SVM classifiers. (decided)
 
@@ -182,6 +180,32 @@ test) method.
   - *Why:* Command-line arguments arrive as strings. Explicit casting prevents type errors inside the scikit-learn backend. (decided)
 - **Graceful fallback for omitted parameters.** If a user types `"None"` in the CLI (e.g., `--max_depth None`), it is cast to Python's `None`. If a parameter is entirely omitted, it is not passed to the constructor.
   - *Why:* This allows `scikit-learn` to automatically apply its rigorously tested default values (e.g., 100 estimators) without us having to hardcode and maintain them in our wrapper. (decided)
+
+## Support Vector Machine (issue #12, `src/models/svm.py`)
+
+### Scikit-learn integration
+- **Uses `sklearn.svm.SVC`.**
+  - *Why:* The assignment explicitly allows using the scikit-learn library implementation for the Random Forest and SVM classifiers. (decided)
+
+### Hyperparameter selection and validation
+- **Core hyperparameters exposed (`C`, `kernel`, `gamma`, `degree`).** These are the fundamental parameters that dictate the SVM's regularization and decision boundary shape, as highlighted in the theoretical slides.
+  - *Why:* They form the minimal required set to properly tune an SVM across different datasets. (decided)
+- **Included `class_weight` validation (`'balanced'` vs `None`).**
+  - *Why:* The EDA revealed that the `splice` dataset is imbalanced (majority class ~52%). Standard SVMs optimize for overall accuracy and can collapse into predicting only the majority class. Exposing `class_weight="balanced"` allows the algorithm to heavily penalize misclassifications of minority classes. (decided)
+- **Included convergence safeguards (`max_iter`, `tol`).**
+  - *Why:* SVM training time scales roughly at $O(N^3)$. With complex datasets or very high values of `C`, the optimization solver can hang indefinitely. Exposing `max_iter` allows us to enforce a hard time limit on experiments. (decided)
+- **Included `coef0` for kernel shifting.**
+  - *Why:* When experimenting with `poly` or `sigmoid` kernels, the independent term is mathematically necessary to control the influence of higher-order polynomials vs lower-order ones. (decided)
+- **Default injection of `random_state`.** If omitted via CLI, the model automatically reads and injects `config.SEED`.
+  - *Why:* Even though standard SVM is deterministic, `scikit-learn` uses randomness under the hood for probability estimations and data shuffling during optimization. Injecting the seed guarantees 100% reproducible execution across all folds. (decided)
+
+### Data Preparation and Fail-Fast philosophy
+- **Strict mathematical constraints (No `None` for floats/ints).** Parameters like `C`, `degree`, or `max_iter` are rigorously cast to `float` or `int`, and explicitly reject the string `"None"`.
+  - *Why:* These parameters represent mathematical constants or hard limits in the scikit-learn backend. Passing a `None` value crashes the underlying C/Cython solver. Rejecting them at the parsing stage provides immediate, clear feedback to the user. (decided)
+- **Explicit string validation for `kernel` and `class_weight`.** Typographical errors (e.g., `--kernel patata`) immediately raise a `ValueError`.
+  - *Why:* Fail-fast principle. It prevents the model from silently falling back to a default configuration, ensuring the user is actually testing the parameters they intended to test. (decided)
+- **Data prepared via One-Hot Encoding (`to_onehot()`).** The SVM receives the numeric columns followed by binary columns for nominals.
+  - *Why:* Like the Random Forest, standard SVMs interpret distance geometrically. Feeding raw integer categorical codes would create false distances and orderings between nominal values (e.g., A/C/G/T). One-hot encoding ensures orthogonal geometric distances between categories. (decided)
 
 ## Methods and libraries used
 
@@ -203,7 +227,8 @@ test) method.
 | Single ML Entry point| Created a single entry point for all the ML model runs | Own code | `experiments/run.py`|
 | Experiment runner | Run the 10 predefined folds and collect common evaluation metrics | Own code | `src/experiment_runner.py` |
 | Result export | Save experiment results using the common 9-column CSV schema | Python `csv` | `src/experiment_runner.py` |
-| Random Forest model| Train an ensemble of decision trees using one-hot encoded nominals | `sklearn.ensemble.RandomForestClassifier` | `src/models/random_forest.py` |
+| Random Forest model | Train an ensemble of decision trees using one-hot encoded nominals | `sklearn.ensemble.RandomForestClassifier` | `src/models/random_forest.py` |
+| Support Vector Machine model | Train a Support Vector Machine using one-hot encoded nominals | `sklearn.svm.SVC` | `src/models/svm.py` |
 | EDA figures | Class counts, histograms, nucleotide heatmaps | `matplotlib`, `seaborn` | `experiments/eda.py` |
 | EDA projection | PCA in 2D | Own code (`numpy.linalg.svd`) | `experiments/eda.py` |
 | EDA export | Preprocessed fold as CSV (one-hot + class) | `pandas` | `experiments/eda.py` |

@@ -71,22 +71,47 @@ These parameters are passed as optional flags. If omitted, the model will fall b
 
 - Random Forest (`--classifier rf`)
 
-- `--n_estimators` (integer): Number of trees in the forest. Default: Scikit-learn default (100).
+  - `--n_estimators` (integer): Number of trees in the forest. Default: Scikit-learn default (100).
 
-- `--criterion` (string): The function to measure the quality of a split. Must be one of: `gini`, `entropy`, or `log_loss`. Default: Scikit-learn default ("gini").
+  - `--criterion` (string): The function to measure the quality of a split. Must be one of: `gini`, `entropy`, or `log_loss`. Default: Scikit-learn default ("gini").
 
-- `--max_depth` (integer or 'None'): Maximum depth of the trees. Default: Scikit-learn default (None).
+  - `--max_depth` (integer or 'None'): Maximum depth of the trees. Default: Scikit-learn default (None).
 
-- `--max_features` (integer, float, 'sqrt', 'log2', or 'None'): The number of features to consider when looking for the best split. Float values represent a fraction. Default: Scikit-learn default ("sqrt").
+  - `--max_features` (integer, float, 'sqrt', 'log2', or 'None'): The number of features to consider when looking for the best split. Float values represent a fraction. Default: Scikit-learn default ("sqrt").
 
-- `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn default (1).
+  - `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn default (1).
 
-- `--random_state` (integer): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
+  - `--random_state` (integer): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
 
-    Example:
-    ```bash
-    python experiments/run.py --dataset splice --classifier rf --n_estimators 200 --max_depth 10
-    ```
+      Example:
+      ```bash
+      python experiments/run.py --dataset splice --classifier rf --n_estimators 200 --max_depth 10
+      ```
+- Support Vector Machine (`--classifier svm`)
+
+  - `--C` (float): Regularization parameter. The strength of the regularization is inversely proportional to C. Default: Scikit-learn default (1.0).
+
+  - `--kernel` (string): Specifies the kernel type to be used. Must be one of: `linear`, `poly`, `rbf`, or `sigmoid`. Default: Scikit-learn default ("rbf").
+
+  - `--gamma` (float, 'scale', or 'auto'): Kernel coefficient for 'rbf', 'poly' and 'sigmoid'. Default: Scikit-learn default ("scale").
+
+  - `--degree` (integer): Degree of the polynomial kernel function ('poly'). Ignored by all other kernels. Default: Scikit-learn default (3).
+
+  - `--class_weight` ('balanced' or 'None'): Set to 'balanced' to automatically adjust weights inversely proportional to class frequencies (useful for imbalanced datasets like `splice`). Default: None.
+
+  - `--coef0` (float): Independent term in kernel function. Only significant in 'poly' and 'sigmoid'. Default: 0.0.
+
+  - `--max_iter` (integer): Hard limit on iterations within solver, or -1 for no limit. Default: -1.
+
+  - `--tol` (float): Tolerance for stopping criterion. Default 1e-3.
+
+  - `--random_state` (integer or 'None'): Seed for probability estimation and shuffling. Default: The project's fixed seed (`config.SEED`).
+
+      Example:
+      ```bash
+      python experiments/run.py --dataset splice --classifier svm --C 1.5 --max_iter 1000
+      ```
+
 
 The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
 Use `--out <path>` to select another destination.
