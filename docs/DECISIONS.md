@@ -175,11 +175,23 @@ test) method.
 - **Empty matrix validation.** The `prepare_data` method raises a `ValueError` if the generated matrices or label arrays are empty or misaligned.
   - *Why:* "Fail-fast" philosophy. Catching data corruption or preprocessing errors manually before feeding the data to scikit-learn prevents cryptic backend errors and guarantees data integrity. (decided)
 
-### Parameter handling
-- **Explicit casting of known hyperparameters.** The `parse_params` method explicitly casts inputs for `n_estimators`, `max_depth`, `min_samples_split`, `min_samples_leaf`, `random_state`, and `n_jobs` to integers.
-  - *Why:* Command-line arguments arrive as strings. Explicit casting prevents type errors inside the scikit-learn backend. (decided)
-- **Graceful fallback for omitted parameters.** If a user types `"None"` in the CLI (e.g., `--max_depth None`), it is cast to Python's `None`. If a parameter is entirely omitted, it is not passed to the constructor.
-  - *Why:* This allows `scikit-learn` to automatically apply its rigorously tested default values (e.g., 100 estimators) without us having to hardcode and maintain them in our wrapper. (decided)
+### Parameter handling and validation (Fail-Fast philosophy)
+- **Core hyperparameters exposed (`n_estimators`, `criterion`, `max_depth`, `max_features`, `min_samples_leaf`).** These control the ensemble size, splitting logic, and individual tree regularization, matching the core parameters highlighted in the theory slides.
+  - *Why:* They form the minimal and sufficient set to properly tune a Random Forest's bias-variance tradeoff. (decided)
+- **Strict mathematical constraints (No `None` for strict ints).** Parameters like `n_estimators` and `min_samples_leaf` are rigorously cast to `int`, and explicitly reject the string `"None"`.
+  - *Why:* These parameters represent hard counts in the scikit-learn backend. Passing a `None` value mathematically breaks the algorithm. Rejecting them at the parsing stage provides immediate, clear feedback. (decided)
+- **Nullable constraints for specific limits (`max_depth`).** The parser allows `"None"` for `max_depth`.
+  - *Why:* In a decision tree, a `max_depth` of `None` is mathematically valid and implies "expand nodes until all leaves are pure or contain less than min_samples_split samples." (decided)
+- **Flexible parsing for `max_features`.** Accepts strings (`"sqrt"`, `"log2"`, `"None"`), floats (e.g., `0.5`), and integers (e.g., `5`).
+  - *Why:* Scikit-learn has very specific behaviors depending on the type: a float acts as a percentage of total features, an integer acts as an absolute count, and strings apply specific math functions. The parser perfectly preserves this flexibility. (decided)
+- **Explicit string validation for `criterion`.** Typographical errors (e.g., `--criterion patata`) immediately raise a `ValueError`.
+  - *Why:* Fail-fast principle. It prevents the model from silently falling back to `"gini"`, ensuring the user is actually testing the split logic they intended. (decided)
+- **Default injection of `random_state`.** If omitted via CLI, the model automatically reads and injects `config.SEED`.
+  - *Why:* Random Forest relies heavily on randomness (bootstrapping samples and randomly selecting feature subsets at each split). Injecting the seed guarantees 100% reproducible execution across all folds. (decided)
+- **Exposed `n_jobs`.** Allows setting the number of parallel jobs via CLI.
+  - *Why:* Training 100+ trees is trivially parallelizable. Exposing this allows utilizing all CPU cores (`--n_jobs -1`) to drastically reduce experiment time on large datasets without altering mathematical results. (decided)
+- **Default values explicitly added**: If some params are not passed through the CLI, they are explicitly added into `params`.
+  - *Why:* We do this in order to visualize them in the csv, as the default param values wouldn't be captured and thus, we facilitate experiment discerning. (decided)
 
 ## Support Vector Machine (issue #12, `src/models/svm.py`)
 

@@ -71,17 +71,19 @@ These parameters are passed as optional flags. If omitted, the model will fall b
 
 - Random Forest (`--classifier rf`)
 
-  - `--n_estimators` (integer): Number of trees in the forest. Default: Scikit-learn default (100).
+- `--n_estimators` (integer): Number of trees in the forest. Default: Scikit-learn default (100).
 
-  - `--criterion` (string): The function to measure the quality of a split. Must be one of: `gini`, `entropy`, or `log_loss`. Default: Scikit-learn default ("gini").
+- `--criterion` (string): The function to measure the quality of a split. Must be one of: `gini`, `entropy`, or `log_loss`. Default: Scikit-learn default ("gini").
 
-  - `--max_depth` (integer or 'None'): Maximum depth of the trees. Default: Scikit-learn default (None).
+- `--max_depth` (integer or 'None'): Maximum depth of the trees. Default: Scikit-learn default (None).
 
-  - `--max_features` (integer, float, 'sqrt', 'log2', or 'None'): The number of features to consider when looking for the best split. Float values represent a fraction. Default: Scikit-learn default ("sqrt").
+- `--max_features` (integer, float, 'sqrt', 'log2', or 'None'): The number of features to consider when looking for the best split. Float values represent a fraction. Default: Scikit-learn default ("sqrt").
 
-  - `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn default (1).
+- `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn default (1).
 
-  - `--random_state` (integer): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
+- `--random_state` (integer, None): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
+
+- `--n_jobs` (integer, None): The number of jobs to run in parallel. fit, predict, decision_path and apply are all parallelized over the trees. Default: None
 
       Example:
       ```bash

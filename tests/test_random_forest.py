@@ -22,26 +22,47 @@ def mock_preprocessed():
     return _make_mock
 
 
-def test_parse_params_casts_integers():
-    rf = RandomForest({"n_estimators": "50", "max_depth": "10", "min_samples_leaf": "5"})
+def test_parse_params_casts_strict_ints():
+    rf = RandomForest({"n_estimators": "50", "min_samples_leaf": "5"})
     assert rf.params["n_estimators"] == 50
-    assert rf.params["max_depth"] == 10
     assert rf.params["min_samples_leaf"] == 5
 
 
-def test_parse_params_handles_none_gracefully():
-    rf = RandomForest({"max_depth": "None", "random_state": "none"})
-    assert rf.params["max_depth"] is None
-    assert rf.params["random_state"] is None
+def test_parse_params_strict_types_fail_on_none():
+    # Params that cannot be None
+    with pytest.raises(ValueError):
+        RandomForest({"n_estimators": "None"})
+    with pytest.raises(ValueError):
+        RandomForest({"min_samples_leaf": "None"})
 
 
-def test_parse_params_ignores_unknown_or_default_params():
-    # If a param is omitted, it shouldn't crash, allowing sklearn to use defaults.
+def test_parse_params_handles_nullable_ints():
+    rf_none = RandomForest({"max_depth": "None", "random_state": "none", "n_jobs": "none"})
+    assert rf_none.params["max_depth"] is None
+    assert rf_none.params["random_state"] is None
+    assert rf_none.params["n_jobs"] is None
+
+    rf_int = RandomForest({"max_depth": "10", "random_state": "42", "n_jobs": "-1"})
+    assert rf_int.params["max_depth"] == 10
+    assert rf_int.params["random_state"] == 42
+    assert rf_int.params["n_jobs"] == -1
+
+
+def test_parse_params_injects_all_defaults():
+    # If parameters are omitted, it should inject our predefined defaults
     rf = RandomForest({"unknown_flag": "true"})
-    assert "n_estimators" not in rf.params
+
+    # Unknown flags are kept
     assert rf.params["unknown_flag"] == "true"
-    # Ensure reproducibility by default
+
+    # Defaults are injected
+    assert rf.params["n_estimators"] == 100
+    assert rf.params["criterion"] == "gini"
+    assert rf.params["max_depth"] is None
+    assert rf.params["min_samples_leaf"] == 1
     assert rf.params["random_state"] == config.SEED
+    assert rf.params["n_jobs"] is None
+    assert rf.params["max_features"] == "sqrt"
 
 
 def test_parse_params_handles_max_features():
@@ -72,18 +93,6 @@ def test_parse_params_validates_criterion():
     # Invalid criterion raises an error
     with pytest.raises(ValueError, match="Invalid criterion 'patata'"):
         RandomForest({"criterion": "patata"})
-
-
-def test_parse_params_injects_default_seed():
-    import config
-
-    rf = RandomForest({})
-    assert "random_state" in rf.params
-    assert rf.params["random_state"] == config.SEED
-
-    # If a seed is provided, it is saved
-    rf_custom = RandomForest({"random_state": "999"})
-    assert rf_custom.params["random_state"] == 999
 
 
 def test_prepare_data_success(mock_preprocessed):
@@ -149,8 +158,17 @@ def test_fit_predict_execution(mock_rf_class, mock_preprocessed):
     rf = RandomForest({"n_estimators": 10, "random_state": 42})
     result = rf.fit_predict(train, test)
 
-    # Ensure sklearn RandomForestClassifier was instantiated with our cast parameters
-    mock_rf_class.assert_called_once_with(n_estimators=10, random_state=42)
+    # Ensure sklearn RandomForestClassifier was instantiated with our exact parameters
+    # AND all the defaults explicitly injected
+    mock_rf_class.assert_called_once_with(
+        n_estimators=10,
+        criterion="gini",
+        max_depth=None,
+        min_samples_leaf=1,
+        random_state=42,
+        n_jobs=None,
+        max_features="sqrt",
+    )
 
     # Ensure fit and predict were called on the one-hot encoded mock arrays
     assert mock_rf_instance.fit.called

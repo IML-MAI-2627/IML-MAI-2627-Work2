@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        help="CSV destination (default: results/baseline_<dataset>.csv)",
+        help="CSV destination (default: results/<classifier>_<dataset>.csv)",
     )
 
     # parse_known_args returns two things: known arguments and a list of the rest
@@ -67,7 +67,7 @@ def main() -> int:
         model_name=CLASSIFIERS[args.classifier][1],
         params=params,
     )
-    output = args.out or config.RESULTS_DIR / f"baseline_{args.dataset}.csv"
+    output = args.out or config.RESULTS_DIR / f"{args.classifier}_{args.dataset}.csv"
     save_results(results, output)
     try:
         display_path = output.relative_to(PROJECT_ROOT)
