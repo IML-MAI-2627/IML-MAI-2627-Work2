@@ -198,17 +198,17 @@ Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vo
 `all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
 changes the output folder.
 
-## GridSearch for RandomForest Classifier and SVM
+## Grid Search for Random Forest and Support Vector Machine classifiers
 
 Extracts the approximated optimal hyperparameters for each model and each dataset performing GridSearch.
 Run from the project root:
 
 ```bash
-python experiments/grid_search.py
+python experiments/grid_search.py --dataset all --classifier all --out .
 ```
 
 Output goes to `results/gridsearch/` (not committed). `--dataset` accepts `splice`, `vowel` or
-`all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
+`all`; `--classifier` accepts `rf`, `svm`, or `all`;`--out`
 changes the output folder.
 
 ## Layout
@@ -216,7 +216,7 @@ changes the output folder.
 - `src/` — source code
 - `tests/` — tests
 - `experiments/` — experiment scripts
-- `results/` — CSV results
+- `results/` — CSV and MD results
 - `report/` — report sources
 - `datasets/` — ARFF folds (do not modify)
 

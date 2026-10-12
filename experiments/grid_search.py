@@ -1,8 +1,14 @@
+import argparse
 import itertools
 import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
+
+# Make src/ importable when the script is run directly
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # ---------------------------------------------------------
 # 1. Configuration & Hyperparameter Grids
@@ -21,18 +27,12 @@ GRIDS = {
         "gamma": ["scale", "auto"],
         "class_weight": ["None", "balanced"],
         "coef0": [-0.5, 0.0, 0.5],
-        # We Leave tol and max_iter fixed to avoid combinatorial explosion
+        # We leave tol and max_iter fixed to avoid combinatorial explosion
         "tol": [0.001],
         "max_iter": [-1],
         "degree": [2, 3, 5],
     },
 }
-
-DATASETS = ["vowel", "splice"]
-MODELS = ["rf", "svm"]
-
-OUT_DIR = Path("results/gridsearch")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------
@@ -66,14 +66,14 @@ def prune_params(model, params):
 # ---------------------------------------------------------
 # 3. Execution Phase
 # ---------------------------------------------------------
-def run_grid_search():
+def run_grid_search(datasets: list[str], models: list[str], out_dir: Path):
     print("--- Starting Manual Grid Search CV ---")
-    print(f"CSV results will be saved in: {OUT_DIR}\n")
+    print(f"CSV results will be saved in: {out_dir}\n")
 
     total_runs = 0
 
-    for dataset in DATASETS:
-        for model in MODELS:
+    for dataset in datasets:
+        for model in models:
             grid = GRIDS[model]
             combinations = list(generate_combinations(grid))
 
@@ -87,11 +87,9 @@ def run_grid_search():
             )
 
             for i, params in enumerate(combinations):
-                # 1. Prune the inactive parameters
                 pruned_params = prune_params(model, params)
 
-                # 2. Check if we already tested this exact mathematical model
-                # We use frozenset because normal dicts cannot be added to a set
+                # Check if we already tested this exact mathematical model
                 config_key = frozenset(pruned_params.items())
                 if config_key in tested_configs:
                     skipped_count += 1
@@ -100,7 +98,7 @@ def run_grid_search():
                 tested_configs.add(config_key)
 
                 # Unique output file based on the loop index
-                out_file = OUT_DIR / f"{dataset}_{model}_comb_{i}.csv"
+                out_file = out_dir / f"{dataset}_{model}_comb_{i}.csv"
 
                 if out_file.exists():
                     continue
@@ -137,10 +135,10 @@ def run_grid_search():
 # ---------------------------------------------------------
 # 4. Evaluation Phase
 # ---------------------------------------------------------
-def evaluate_results():
+def evaluate_results(out_dir: Path):
     print("--- Evaluating Grid Search Results ---")
 
-    csv_files = list(OUT_DIR.glob("*.csv"))
+    csv_files = list(out_dir.glob("*.csv"))
     if not csv_files:
         print("No CSV files found in the output directory.")
         return
@@ -179,7 +177,7 @@ def evaluate_results():
         .reset_index()
     )
 
-    report_file = OUT_DIR / "optimal_results.txt"
+    report_file = out_dir / "optimal_results.txt"
 
     print("\nOPTIMAL HYPERPARAMETERS FOUND\n")
 
@@ -212,6 +210,25 @@ def evaluate_results():
     print(f"\nSummary report successfully saved to: {report_file}")
 
 
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Manual Grid Search CV for hyperparameter tuning.")
+    parser.add_argument("--dataset", choices=["vowel", "splice", "all"], default="all")
+    parser.add_argument("--classifier", choices=["rf", "svm", "all"], default="all")
+    parser.add_argument("--out", type=Path, default=Path("results/gridsearch"))
+
+    args = parser.parse_args(argv)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+
+    datasets = ["vowel", "splice"] if args.dataset == "all" else [args.dataset]
+    models = ["rf", "svm"] if args.classifier == "all" else [args.classifier]
+
+    # 1. Run all combinations
+    run_grid_search(datasets, models, args.out)
+
+    # 2. Read all files, find the best, and save to optimal_results.txt
+    evaluate_results(args.out)
+
+
 if __name__ == "__main__":
-    run_grid_search()
-    evaluate_results()
+    main()

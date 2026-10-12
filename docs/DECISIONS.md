@@ -324,6 +324,36 @@ Status: **decided** / **pending**.
     - *Why:* Like the Random Forest, standard SVMs interpret distance geometrically. Feeding raw integer categorical
       codes would create false distances and orderings between nominal values (e.g., A/C/G/T). One-hot encoding ensures
       orthogonal geometric distances between categories. (decided)
+- ## Hyperparameter Tuning (Grid Search)
+
+### Manual Implementation (`experiments/gridsearch.py`)
+
+- **Implemented a custom Grid Search script instead of using `sklearn.model_selection.GridSearchCV`.** The script
+  generates a Cartesian product of parameters, prunes redundant configurations, and executes the CLI `run.py` command
+  for each valid combination.
+    - *Why:* The assignment strictly requires evaluation across the 10 predefined train/test folds, exporting results to
+      a specific 9-column CSV schema. A custom script ensures total control over the fold execution while maintaining
+      the project's single-responsibility pipeline intact. (decided)
+- **Kernel-based parameter pruning.** The script simulates the SVM kernel logic to prune inactive parameters (e.g.,
+  dropping `gamma` when the kernel is `linear`) before running them.
+    - *Why:* Prevents the grid from evaluating mathematically identical models multiple times, massively reducing
+      computation time and keeping the output logs clean of duplicate configurations. (decided)
+- **Resilience and Checkpointing.** Each configuration is saved as an individual CSV. The script checks if a
+  configuration file already exists before running it.
+    - *Why:* If the intensive Grid Search process is interrupted (e.g., SSH disconnection or crash), it can resume
+      exactly where it left off without re-computing past folds. (decided)
+
+### Known Limitations regarding Evaluation
+
+- **Optimization Bias (Hyperparameter Leakage).** Because we are running our Grid Search across the 10 predefined test
+  folds and selecting the hyperparameters that yield the highest mean accuracy, the test sets are effectively acting as
+  validation sets.
+    - *Consequence:* This introduces a slight optimization bias. The reported maximum accuracies (e.g., 96.90% on
+      Splice, 99.09% on Vowel) represent an optimistic upper bound rather than completely unseen generalizability.
+    - *Why we accepted this:* To perform a strictly unbiased evaluation with predefined folds, we would need to
+      implement Nested Cross-Validation (splitting the train folds further into internal train/val sets). Given the
+      scope of the assignment and the rigid nature of the predefined 10 folds, we adhered to the standard CV evaluation
+      approach but acknowledge the optimistic bias in the analysis. (decided)
 
 ## Methods and libraries used
 
@@ -348,12 +378,12 @@ Status: **decided** / **pending**.
 | Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                 | `src/experiment_runner.py`            |
 | Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                    | `src/models/random_forest.py`         |
 | Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                            | `src/models/svm.py`                   |
+| Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                     | `src/experiments/grid_search.py`      |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                      | `experiments/eda.py`                  |
 | EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                | `experiments/eda.py`                  |
 | EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                     | `experiments/eda.py`                  |
 
 Not used (on purpose):
-
 
 - **scikit-learn in the kNN or in the instance reduction.** Both must be our own code.
 - **`sklearn.preprocessing.OneHotEncoder`.** The one-hot is built with `np.eye` from the integer
