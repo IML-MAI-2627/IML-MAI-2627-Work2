@@ -145,20 +145,6 @@ save_results(results, "results/my_model_vowel.csv")
 
 See `docs/DECISIONS.md` for the full classifier and storage contract.
 
-### kNN base
-
-`src/knn_base.py` provides the from-scratch kNN core. A distance function returns the
-`(n_test, n_train)` distance matrix of a fold; the core keeps the nearest training cases of every
-test case in deterministic distance/index order, applies an injected voting function, and adapts
-the predictions to the shared experiment runner. The interface for distance, voting and retention
-work is in `docs/DECISIONS.md`.
-
-Compare it with a plain-Python pairwise kNN (time and predictions, all 10 folds):
-
-```bash
-python experiments/benchmark_knn.py --dataset vowel
-```
-
 ## EDA
 Figures and a text summary of the preprocessed datasets (class distribution, vowel
 histograms and PCA, splice nucleotide frequencies). Run from the project root:
