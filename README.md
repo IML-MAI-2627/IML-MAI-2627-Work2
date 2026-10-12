@@ -147,13 +147,17 @@ See `docs/DECISIONS.md` for the full classifier and storage contract.
 
 ### kNN base
 
-`src/knn_base.py` provides the from-scratch kNN framework. It validates `k`,
-retrieves the nearest training cases using `heapq.nsmallest()` in deterministic
-distance/index order, and adapts predictions to the shared experiment runner.
-Distance metrics and voting policies are injected callables; their
-implementations and parameter studies belong to their respective follow-up work.
-The exact integration contract and a `run_knn.py` template are in
-`docs/DECISIONS.md`.
+`src/knn_base.py` provides the from-scratch kNN core. A distance function returns the
+`(n_test, n_train)` distance matrix of a fold; the core keeps the nearest training cases of every
+test case in deterministic distance/index order, applies an injected voting function, and adapts
+the predictions to the shared experiment runner. The interface for distance, voting and retention
+work is in `docs/DECISIONS.md`.
+
+Compare it with a plain-Python pairwise kNN (time and predictions, all 10 folds):
+
+```bash
+python experiments/benchmark_knn.py --dataset vowel
+```
 
 ## EDA
 Figures and a text summary of the preprocessed datasets (class distribution, vowel

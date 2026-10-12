@@ -172,75 +172,79 @@ test) method.
 
 ## kNN base (issue #6, `src/knn_base.py`)
 
-- **The base kNN accepts injected distance and voting functions.** It is responsible for validating
-  `k`, finding neighbours, iterating over the test set and returning the standard
-  `ClassificationResult`; distance metrics and voting policies remain independent modules.
-  *Why:* it lets every distance/vote combination use identical neighbour retrieval and runner
+- **The base kNN accepts injected distance and voting functions.** It validates `k`, finds the
+  neighbours, applies the vote to every test case and returns the standard `ClassificationResult`;
+  distance metrics and voting policies remain independent modules.
+  *Why:* every distance/vote combination uses identical neighbour retrieval and runner
   integration. (decided)
-- **Neighbour order is deterministic:** candidates sort by `(distance, training index)`.
-  *Why:* distance ties are reproducible and later voting policies receive a stable order. (decided)
-- **Neighbour retrieval keeps only the best `k` candidates** with `heapq.nsmallest`, with
-  `O(n log k)` time and `O(k)` additional memory per query, instead of sorting all `n` cases.
-  *Why:* the required k values are small (3, 5 and 7), while splice has thousands of cases.
-  The algorithm still evaluates every training case, as exact kNN requires. (decided)
-- **All distances must be finite and non-negative.** Invalid distance output raises `ValueError`
-  before voting. (decided)
+- **Distances are computed once per fold as an `(n_test, n_train)` matrix with numpy.** The
+  first version computed one distance per pair in plain Python; on vowel and splice (HEOM,
+  majority vote, K = 3, 5, 7, 10 folds) both give the same predictions, and the matrix version is
+  about 60x faster per K and up to 360x faster when the neighbours are reused for every K
+  (`experiments/benchmark_knn.py`, proposed by Pol).
+  *Why:* the kNN grid has 96 configurations per dataset; with the pairwise version splice alone
+  takes hours. numpy is allowed in the kNN; scikit-learn is not. (decided)
+- **Neighbour order is deterministic:** each row is sorted by `(distance, training index)` with a
+  stable sort. *Why:* distance ties are reproducible and voting policies receive a stable
+  order. (decided)
+- **Neighbours can be reused for every K.** `nearest_neighbors(..., k_max=7)` keeps the 7 nearest
+  cases and `predict(neighbors, k, vote)` uses the first `k`, so a grid script computes the
+  distance matrix once per distance and fold. The runner adapter (`make_knn_classifier`)
+  recomputes it for each configuration. (decided)
+- **All distances must be finite and non-negative, and the matrix must have the shape
+  `(n_test, n_train)`.** Anything else raises `ValueError` before voting. The vote must return an
+  integer class code. (decided)
+- **Limitation:** the matrix assumes the case base does not change while the test fold is
+  classified, which holds for the never-retain policy (NR). AR, DC and OG (#10, #11) add or
+  remove cases during the test phase, so they will need to process test cases in order and
+  mask the case base. (pending)
 
 ### Integration contract for follow-up issues
 
-`knn_base.py` deliberately owns the common control flow. Distance, voting, retention and
-reduction work must use these interfaces instead of duplicating neighbour retrieval:
+Distance, voting, retention and reduction work must use these interfaces instead of
+duplicating neighbour retrieval:
 
 ```python
 from collections.abc import Sequence
 
+import numpy as np
+
 from knn_base import Neighbor
+from preprocessing import Preprocessed
 
 
-def distance_function(
-    query: tuple[object, object],
-    instance: tuple[object, object],
-) -> float: ...
+def distance_function(train: Preprocessed, test: Preprocessed) -> np.ndarray: ...
 
 
 def voting_function(neighbors: Sequence[Neighbor]) -> int: ...
 ```
 
-- `query` and `instance` are `(numeric_row, nominal_row)`: the matching rows from
-  `Preprocessed.X_num` and `Preprocessed.X_nom`.
-- `distance_function` returns one finite, non-negative `float`. `knn_base` rejects `NaN`,
-  infinities and negative values before a voting function can consume them.
-- Each `Neighbor` has `index` (the original training-row index), `distance`, and `label`
-  (`train.y_codes[index]`). Neighbours arrive ordered by `(distance, index)`.
+- `distance_function` returns an `(n_test, n_train)` array: entry `[i, j]` is the distance
+  between test row `i` and training row `j`, using `X_num` and `X_nom` of both sets.
+- Each `Neighbor` has `index` (the training-row index), `distance`, and `label`
+  (`train.y_codes[index]`), as Python values. Neighbours arrive ordered by `(distance, index)`.
 - `voting_function` returns an integer class code from `train.class_values` / `train.y_codes`.
   It must define a deterministic tie-break.
 - Distance, voting and reduction code must not modify the supplied `train` or `test` objects;
   the experiment runner caches preprocessed folds across configurations.
 
-Create a runner-compatible classifier with the framework:
+The kNN will reach `experiments/run.py` through a `KNNClassifier(BaseClassifier)` in
+`src/models/`, added together with the first distance and voting functions: `parse_params`
+maps the CLI names to the functions and `fit_predict` calls `knn_algorithm`. Until then, a
+classifier for the runner is built with:
 
 ```python
-from experiment_runner import run_experiment, save_results
+from experiment_runner import run_experiment
 from knn_base import make_knn_classifier
 
-classifier = make_knn_classifier(
-    k=3,
-    distance_function=distance_function,
-    voting_function=voting_function,
-)
+classifier = make_knn_classifier(k=3, distance_function=..., voting_function=...)
 results = run_experiment(
     dataset="vowel",
     classifier=classifier,
     model_name="kNN",
     params={"k": 3, "distance": "heom", "voting": "majority"},
 )
-save_results(results, "results/knn/vowel_k3_heom_majority.csv")
 ```
-
-For the future `experiments/run_knn.py`, keep strategy names alongside their injected callables,
-loop over `k in (3, 5, 7)` and the required distance/voting combinations, and pass the names in
-the `params` dictionary. `run_experiment()` handles the predefined folds, metrics, fixed seed and
-CSV schema; the script should only select strategies and choose output paths.
 
 ---
 
@@ -308,7 +312,7 @@ CSV schema; the script should only select strategies and choose output paths.
 | Single ML Entry point| Created a single entry point for all the ML model runs | Own code | `experiments/run.py`|
 | Experiment runner | Run the 10 predefined folds and collect common evaluation metrics | Own code | `src/experiment_runner.py` |
 | Result export | Save experiment results using the common 9-column CSV schema | Python `csv` | `src/experiment_runner.py` |
-| kNN framework | Exact neighbour retrieval, validation and runner adapter | Own code + Python standard library `heapq` | `src/knn_base.py` |
+| kNN framework | Exact neighbour retrieval (distance matrix, stable sort by distance then index), validation and runner adapter | Own code + `numpy` | `src/knn_base.py` |
 | Random Forest model| Train an ensemble of decision trees using one-hot encoded nominals | `sklearn.ensemble.RandomForestClassifier` | `src/models/random_forest.py` |
 | EDA figures | Class counts, histograms, nucleotide heatmaps | `matplotlib`, `seaborn` | `experiments/eda.py` |
 | EDA projection | PCA in 2D | Own code (`numpy.linalg.svd`) | `experiments/eda.py` |

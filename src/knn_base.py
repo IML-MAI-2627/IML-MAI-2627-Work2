@@ -1,11 +1,19 @@
-"""Basic, library-independent building blocks for k-nearest neighbours."""
+"""From-scratch k-nearest neighbours (K-IBL) core: neighbour retrieval plus a runner adapter.
+
+Distances are computed once per fold as an (n_test, n_train) matrix with numpy, so the
+neighbours of every test case can be reused for every K. Distance metrics and voting
+policies are injected callables and live in their own modules.
+"""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from heapq import nsmallest
+
+import numpy as np
+
+from experiment_runner import ClassificationResult, Classifier
+from preprocessing import Preprocessed
 
 
 @dataclass(frozen=True)
@@ -17,127 +25,104 @@ class Neighbor:
     label: int
 
 
-DistanceFunction = Callable[[object, object], float]
+@dataclass(frozen=True)
+class Neighbors:
+    """The k_max nearest training cases of every test case, ordered by (distance, index)."""
+
+    indices: np.ndarray  # (n_test, k_max) training-row indices
+    distances: np.ndarray  # (n_test, k_max)
+    labels: np.ndarray  # (n_test, k_max) training class codes
+
+
+DistanceFunction = Callable[[Preprocessed, Preprocessed], np.ndarray]
 VotingFunction = Callable[[Sequence[Neighbor]], int]
 
 
-def find_neighbors(
-    train_X: Sequence[object],
-    train_y: Sequence[int],
-    query: object,
-    k: int,
-    distance_function: DistanceFunction,
-) -> list[Neighbor]:
-    """Return the k closest training instances, ordered by distance then index."""
-
-    if not isinstance(k, int) or isinstance(k, bool) or k <= 0:
+def check_k(k: object, limit: int | None = None) -> int:
+    """Validate k (Python or numpy integer) and return it as a Python int."""
+    if isinstance(k, bool) or not isinstance(k, int | np.integer) or k <= 0:
         raise ValueError("k must be a positive integer")
+    if limit is not None and k > limit:
+        raise ValueError(f"k cannot exceed {limit}")
+    return int(k)
 
-    if len(train_X) == 0:
+
+def nearest_neighbors(
+    train: Preprocessed,
+    test: Preprocessed,
+    distance_function: DistanceFunction,
+    k_max: int,
+) -> Neighbors:
+    """Compute all distances once and keep the k_max nearest training cases per test case."""
+    n_train = len(train.y_codes)
+    if n_train == 0:
         raise ValueError("training data must not be empty")
+    k_max = check_k(k_max, n_train)
 
-    if len(train_X) != len(train_y):
-        raise ValueError("train_X and train_y must contain the same number of instances")
+    distances = np.asarray(distance_function(train, test), dtype=float)
+    expected_shape = (len(test.y_codes), n_train)
+    if distances.shape != expected_shape:
+        raise ValueError(
+            f"distance_function must return shape {expected_shape}, got {distances.shape}"
+        )
+    if not np.all(np.isfinite(distances)) or np.any(distances < 0):
+        raise ValueError("distance_function must return finite, non-negative distances")
 
-    if k > len(train_X):
-        raise ValueError("k cannot exceed the number of training instances")
+    # A stable sort keeps the lower training index first when distances are equal.
+    order = np.argsort(distances, axis=1, kind="stable")[:, :k_max]
+    return Neighbors(
+        indices=order,
+        distances=np.take_along_axis(distances, order, axis=1),
+        labels=np.asarray(train.y_codes)[order],
+    )
 
-    def candidates():
-        """Yield validated candidates in original training order."""
-        for index, (instance, label) in enumerate(zip(train_X, train_y, strict=True)):
-            distance = float(distance_function(query, instance))
 
-            if not math.isfinite(distance) or distance < 0:
-                raise ValueError("distance_function must return finite, non-negative distances")
+def predict(
+    neighbors: Neighbors,
+    k: int,
+    voting_function: VotingFunction,
+) -> list[int]:
+    """Predict one class code per test case using its first k neighbours."""
+    k = check_k(k, neighbors.indices.shape[1])
+    predictions = []
 
-            yield Neighbor(index=index, distance=distance, label=int(label))
+    for indices, distances, labels in zip(
+        neighbors.indices, neighbors.distances, neighbors.labels, strict=True
+    ):
+        nearest = [
+            Neighbor(index=int(i), distance=float(d), label=int(c))
+            for i, d, c in zip(indices[:k], distances[:k], labels[:k], strict=True)
+        ]
+        prediction = voting_function(nearest)
+        if isinstance(prediction, bool) or not isinstance(prediction, int | np.integer):
+            raise ValueError("voting_function must return an integer class code")
+        predictions.append(int(prediction))
 
-    # ``nsmallest`` keeps only k candidates in its heap, avoiding a full O(n log n)
-    # sort for every test case. The index supplies a stable, deterministic tie-break.
-    return nsmallest(k, candidates(), key=lambda neighbor: (neighbor.distance, neighbor.index))
+    return predictions
 
 
 def knn_algorithm(
-    train: object,
-    test: object,
+    train: Preprocessed,
+    test: Preprocessed,
     k: int,
     distance_function: DistanceFunction,
     voting_function: VotingFunction,
 ) -> list[int]:
-    """Predict class codes using a configurable kNN pipeline."""
-
-    train_X = [
-        (num, nom)
-        for num, nom in zip(
-            train.X_num,
-            train.X_nom,
-            strict=True,
-        )
-    ]
-    train_y = train.y_codes
-
-    test_X = [
-        (num, nom)
-        for num, nom in zip(
-            test.X_num,
-            test.X_nom,
-            strict=True,
-        )
-    ]
-
-    if not isinstance(k, int) or isinstance(k, bool) or k <= 0:
-        raise ValueError("k must be a positive integer")
-
-    if len(train_X) == 0:
-        raise ValueError("training data must not be empty")
-
-    if len(train_X) != len(train_y):
-        raise ValueError("training features and labels must have the same number of instances")
-
-    if k > len(train_X):
-        raise ValueError("k cannot exceed the number of training instances")
-
-    predictions = []
-
-    for query in test_X:
-        neighbors = find_neighbors(
-            train_X=train_X,
-            train_y=train_y,
-            query=query,
-            k=k,
-            distance_function=distance_function,
-        )
-
-        prediction = voting_function(neighbors)
-        predictions.append(int(prediction))
-
-    return predictions
+    """Predict one class code per test case with the k nearest training cases."""
+    neighbors = nearest_neighbors(train, test, distance_function, k_max=k)
+    return predict(neighbors, k, voting_function)
 
 
 def make_knn_classifier(
     k: int,
     distance_function: DistanceFunction,
     voting_function: VotingFunction,
-) -> Callable[[object, object], object]:
+) -> Classifier:
     """Create a kNN classifier compatible with the experiment runner."""
+    k = check_k(k)
 
-    if not isinstance(k, int) or isinstance(k, bool) or k <= 0:
-        raise ValueError("k must be a positive integer")
-
-    def classifier(train: object, test: object) -> object:
-        from experiment_runner import ClassificationResult
-
-        predictions = knn_algorithm(
-            train=train,
-            test=test,
-            k=k,
-            distance_function=distance_function,
-            voting_function=voting_function,
-        )
-
-        return ClassificationResult(
-            predictions=predictions,
-            storage=len(train.y),
-        )
+    def classifier(train: Preprocessed, test: Preprocessed) -> ClassificationResult:
+        predictions = knn_algorithm(train, test, k, distance_function, voting_function)
+        return ClassificationResult(predictions=predictions, storage=len(train.y))
 
     return classifier
