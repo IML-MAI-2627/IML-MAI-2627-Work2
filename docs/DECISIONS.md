@@ -170,6 +170,84 @@ test) method.
   - *Why:* the seed reset in `run_experiment` only reaches models that use numpy's global random state; an explicit `random_state` is reproducible regardless. (decided)
 ---
 
+## kNN base (issue #6, `src/knn_base.py`)
+
+- **The base kNN accepts injected distance and voting functions.** It validates `k`, finds the
+  neighbours, applies the vote to every test case and returns the standard `ClassificationResult`;
+  distance metrics and voting policies remain independent modules.
+  *Why:* every distance/vote combination uses identical neighbour retrieval and runner
+  integration. (decided)
+- **Distances are computed once per fold as an `(n_test, n_train)` matrix with numpy.** The
+  first version computed one distance per pair in plain Python; on vowel and splice (HEOM,
+  majority vote, K = 3, 5, 7, 10 folds) both give the same predictions, and the matrix version is
+  about 60x faster per K and up to 360x faster when the neighbours are reused for every K
+  (`experiments/benchmark_knn.py`, proposed by Pol).
+  *Why:* the kNN grid has 96 configurations per dataset; with the pairwise version splice alone
+  takes hours. numpy is allowed in the kNN; scikit-learn is not. (decided)
+- **Neighbour order is deterministic:** each row is sorted by `(distance, training index)` with a
+  stable sort. *Why:* distance ties are reproducible and voting policies receive a stable
+  order. (decided)
+- **Neighbours can be reused for every K.** `nearest_neighbors(..., k_max=7)` keeps the 7 nearest
+  cases and `predict(neighbors, k, vote)` uses the first `k`, so a grid script computes the
+  distance matrix once per distance and fold. The runner adapter (`make_knn_classifier`)
+  recomputes it for each configuration. (decided)
+- **All distances must be finite and non-negative, and the matrix must have the shape
+  `(n_test, n_train)`.** Anything else raises `ValueError` before voting. The vote must return an
+  integer class code. (decided)
+- **Limitation:** the matrix assumes the case base does not change while the test fold is
+  classified, which holds for the never-retain policy (NR). AR, DC and OG (#10, #11) add or
+  remove cases during the test phase, so they will need to process test cases in order and
+  mask the case base. (pending)
+
+### Integration contract for follow-up issues
+
+Distance, voting, retention and reduction work must use these interfaces instead of
+duplicating neighbour retrieval:
+
+```python
+from collections.abc import Sequence
+
+import numpy as np
+
+from knn_base import Neighbor
+from preprocessing import Preprocessed
+
+
+def distance_function(train: Preprocessed, test: Preprocessed) -> np.ndarray: ...
+
+
+def voting_function(neighbors: Sequence[Neighbor]) -> int: ...
+```
+
+- `distance_function` returns an `(n_test, n_train)` array: entry `[i, j]` is the distance
+  between test row `i` and training row `j`, using `X_num` and `X_nom` of both sets.
+- Each `Neighbor` has `index` (the training-row index), `distance`, and `label`
+  (`train.y_codes[index]`), as Python values. Neighbours arrive ordered by `(distance, index)`.
+- `voting_function` returns an integer class code from `train.class_values` / `train.y_codes`.
+  It must define a deterministic tie-break.
+- Distance, voting and reduction code must not modify the supplied `train` or `test` objects;
+  the experiment runner caches preprocessed folds across configurations.
+
+The kNN will reach `experiments/run.py` through a `KNNClassifier(BaseClassifier)` in
+`src/models/`, added together with the first distance and voting functions: `parse_params`
+maps the CLI names to the functions and `fit_predict` calls `knn_algorithm`. Until then, a
+classifier for the runner is built with:
+
+```python
+from experiment_runner import run_experiment
+from knn_base import make_knn_classifier
+
+classifier = make_knn_classifier(k=3, distance_function=..., voting_function=...)
+results = run_experiment(
+    dataset="vowel",
+    classifier=classifier,
+    model_name="kNN",
+    params={"k": 3, "distance": "heom", "voting": "majority"},
+)
+```
+
+---
+
 ## Random Forest (issue #13, `src/models/random_forest.py`)
 
 ### OOP Architecture and Scikit-learn integration
@@ -234,6 +312,7 @@ test) method.
 | Single ML Entry point| Created a single entry point for all the ML model runs | Own code | `experiments/run.py`|
 | Experiment runner | Run the 10 predefined folds and collect common evaluation metrics | Own code | `src/experiment_runner.py` |
 | Result export | Save experiment results using the common 9-column CSV schema | Python `csv` | `src/experiment_runner.py` |
+| kNN framework | Exact neighbour retrieval (distance matrix, stable sort by distance then index), validation and runner adapter | Own code + `numpy` | `src/knn_base.py` |
 | Random Forest model| Train an ensemble of decision trees using one-hot encoded nominals | `sklearn.ensemble.RandomForestClassifier` | `src/models/random_forest.py` |
 | EDA figures | Class counts, histograms, nucleotide heatmaps | `matplotlib`, `seaborn` | `experiments/eda.py` |
 | EDA projection | PCA in 2D | Own code (`numpy.linalg.svd`) | `experiments/eda.py` |
@@ -257,7 +336,7 @@ Not used (on purpose):
 ## Pending decisions
 | Topic | Proposal | Needs |
 |---|---|---|
-| Distance chosen as "one you may choose" | HEOM (simple, no train statistics) | Team decision before the kNN (#6) |
-| Nominal attributes in Euclidean / Manhattan / Clark-Camberra | Use the one-hot version | Team decision before the kNN (#6) |
-| Clark / Camberra with 0/0 | Define the term as 0 | Implement in the kNN |
-| vowel columns | See "Dropped columns" (A/B/C comparison) | After the kNN exists |
+| Distance chosen as "one you may choose" | HEOM (simple, no train statistics) | Team decision before implementing distance functions |
+| Nominal attributes in Euclidean / Manhattan / Clark-Camberra | Use the one-hot version | Team decision before implementing distance functions |
+| Clark / Camberra with 0/0 | Define the term as 0 | Implement in the distance module |
+| vowel columns | See "Dropped columns" (A/B/C comparison) | After distance and voting implementations exist |
