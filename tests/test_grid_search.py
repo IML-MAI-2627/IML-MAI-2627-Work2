@@ -100,8 +100,12 @@ def test_prune_params_rf():
 @patch("grid_search.subprocess.run")
 def test_run_grid_search_builds_correct_commands(mock_subprocess_run, tmp_path):
     """Mocks subprocess to ensure run.py commands are built correctly without executing."""
+    # MOCK FIX: Force the mock to return a success code (0) so the fail-fast
+    # RuntimeError in the script doesn't trigger and crash the test.
+    mock_subprocess_run.return_value.returncode = 0
+
     # Temporarily patch the GRIDS dictionary to a tiny dummy grid
-    tiny_grid = {"svm": {"C": [1.0, 2.0], "kernel": ["linear"]}, "gamma": ["auto"]}
+    tiny_grid = {"svm": {"C": [1.0, 2.0], "kernel": ["linear"], "gamma": ["auto"]}}
 
     with patch.dict(grid_search.GRIDS, tiny_grid, clear=True):
         grid_search.run_grid_search(datasets=["vowel"], models=["svm"], out_dir=tmp_path)
@@ -111,6 +115,9 @@ def test_run_grid_search_builds_correct_commands(mock_subprocess_run, tmp_path):
 
     # Check the exact command built for the first execution
     first_call_args = mock_subprocess_run.call_args_list[0][0][0]  # Get the cmd list
+
+    # Assert sys.executable is correctly passed as the first argument
+    assert first_call_args[0] == sys.executable
     assert "experiments/run.py" in first_call_args
     assert "--dataset" in first_call_args
     assert "vowel" in first_call_args
@@ -124,10 +131,13 @@ def test_run_grid_search_builds_correct_commands(mock_subprocess_run, tmp_path):
 @patch("grid_search.subprocess.run")
 def test_run_grid_search_skips_existing_files(mock_subprocess_run, tmp_path):
     """Ensures that the grid search skips combinations if their CSV already exists."""
+    mock_subprocess_run.return_value.returncode = 0
+
     tiny_grid = {"svm": {"C": [1.0, 2.0], "kernel": ["linear"]}}
 
     # Create a fake CSV file simulating that combination 0 was already completed
-    (tmp_path / "vowel_svm_comb_0.csv").touch()
+    # (Assuming the missing underscore bug in grid_search.py is fixed)
+    (tmp_path / "vowel_svm_C-1.0_kernel-linear.csv").touch()
 
     with patch.dict(grid_search.GRIDS, tiny_grid, clear=True):
         grid_search.run_grid_search(datasets=["vowel"], models=["svm"], out_dir=tmp_path)
@@ -157,8 +167,8 @@ def test_evaluate_results_extracts_best_models(tmp_path):
         "splice,1,svm,C=10.0;kernel=rbf,0.95,95,5,0.2,100\n"
     )
 
-    (tmp_path / "splice_svm_comb_0.csv").write_text(csv_config_a)
-    (tmp_path / "splice_svm_comb_1.csv").write_text(csv_config_b)
+    (tmp_path / "splice_svm_C-1.0_kernel-linear.csv").write_text(csv_config_a)
+    (tmp_path / "splice_svm_C-10.0_kernel-rbf.csv").write_text(csv_config_b)
 
     # Run evaluation
     grid_search.evaluate_results(out_dir=tmp_path)

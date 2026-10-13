@@ -16,7 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 GRIDS = {
     "rf": {
         "n_estimators": [50, 100, 200, 300],
-        "criterion": ["gini", "entropy", "log_loss"],
+        "criterion": ["gini", "entropy"],
         "max_depth": [10, 20, "None"],
         "max_features": ["sqrt", "None"],
         "min_samples_leaf": [1, 2],
@@ -86,7 +86,7 @@ def run_grid_search(datasets: list[str], models: list[str], out_dir: Path):
                 f"Found {len(combinations)} raw combinations to evaluate."
             )
 
-            for i, params in enumerate(combinations):
+            for _i, params in enumerate(combinations):
                 pruned_params = prune_params(model, params)
 
                 # Check if we already tested this exact mathematical model
@@ -97,15 +97,24 @@ def run_grid_search(datasets: list[str], models: list[str], out_dir: Path):
 
                 tested_configs.add(config_key)
 
-                # Unique output file based on the loop index
-                out_file = out_dir / f"{dataset}_{model}_comb_{i}.csv"
+                # Unique output file based on the parameters_used
+
+                # 1. Joining parameter-value with "-", and each pair with "_"
+                if pruned_params:
+                    params_str = "_".join(f"{k}-{v}" for k, v in pruned_params.items())
+                else:
+                    params_str = "default"  # If empty dictionary
+
+                # 2. Final path
+                out_file = out_dir / f"{dataset}_{model}_{params_str}.csv"
 
                 if out_file.exists():
                     continue
+                print(f"  path: {out_file}")
 
                 # Build the CLI command using the PRUNED params
                 cmd = [
-                    "python",
+                    sys.executable,
                     "experiments/run.py",
                     "--dataset",
                     dataset,
@@ -123,8 +132,20 @@ def run_grid_search(datasets: list[str], models: list[str], out_dir: Path):
 
                 print(f"  -> Running valid config: {pruned_params}")
 
-                # Execute the command
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Execute the command, capturing stderr to surface fail-fast exceptions
+                result = subprocess.run(
+                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+                )
+
+                if result.returncode != 0:
+                    print(f"\n[!] ERROR: Run failed for config: {pruned_params}")
+                    print(f"Command executed: {' '.join(cmd)}")
+                    print(f"Error Details:\n{result.stderr}")
+
+                    # Halt the entire grid search on failure to prevent wasting time on a bad grid
+                    raise RuntimeError(
+                        "Experiment aborted due to subprocess failure. See stderr above."
+                    )
                 total_runs += 1
 
             print(f"  * Skipped {skipped_count} redundant combinations due to kernel pruning.\n")
