@@ -19,6 +19,7 @@ Status: **decided** / **pending**.
 
 ### Numeric attributes
 
+
 - **Min-max scaling to [0,1]** with the train min/max: `x' = (x - min) / (max - min)`.
     - *Why:* required by the assignment; also keeps all attributes on a comparable scale so no
       attribute dominates the distance. (decided)
@@ -37,6 +38,7 @@ Status: **decided** / **pending**.
 
 ### Nominal attributes
 
+
 - **Integer codes, ONE column per attribute** (`X_nom`), for the kNN.
     - *Why:* HEOM compares nominal values by equality (0 if equal, 1 if different), so a single
       column of labels is enough. The numbers are labels, not an order. (decided)
@@ -52,6 +54,7 @@ Status: **decided** / **pending**.
 - **Ambiguous nucleotide codes in splice (D, N, S, R) are valid values, not missing values.** (note)
 
 ### Missing values
+
 
 - **Numeric: train mean. Nominal: train mode.** Statistics ignore the missing cells.
     - *Why:* simple, deterministic, computed on train only. (decided)
@@ -76,6 +79,7 @@ Status: **decided** / **pending**.
 
 ### Class
 
+
 - `y` is kept unchanged; `y_codes` gives the integer version (position in the header `class_values`).
 - The class is never part of `X_num` / `X_nom`, so it cannot leak into the distance. (decided)
 - **Rows with an unknown class (`?`) are removed with a warning** that reports how many. *Why:* they cannot be learned
@@ -83,6 +87,7 @@ Status: **decided** / **pending**.
   evaluated on fewer cases. splice and vowel have none. (decided)
 
 ### Dropped columns (vowel)
+
 
 - **`Train_or_Test` is dropped.** It only records which half of the original UCI split a row came
   from; it does not describe the sound and is unrelated to our 10 folds. (decided)
@@ -95,6 +100,7 @@ Status: **decided** / **pending**.
   Report it in the analysis. (pending)
 
 ### How the preprocessing was checked
+
 
 - Unit tests (synthetic, run in CI): scaling, clipping, constant column, imputation with train
   stats, statistics ignore missing cells, codes, one-hot shape, class unchanged, drop.
@@ -111,6 +117,7 @@ Status: **decided** / **pending**.
   cases the only differences were the two intended ones (mode ties, empty nominal column).
 
 ### Observations for the analysis / report
+
 
 - **vowel has a ceiling effect.** 1-NN already reaches ~98.9%. Likely reason: the dataset has
   15 speakers x 11 vowels x 6 repetitions, and the random stratified folds put repetitions of the
@@ -206,6 +213,73 @@ Status: **decided** / **pending**.
 - **Stochastic classifiers pass `random_state=config.SEED` explicitly** (e.g. Random Forest).
     - *Why:* the seed reset in `run_experiment` only reaches models that use numpy's global random state; an explicit
       `random_state` is reproducible regardless. (decided)
+
+
+---
+
+## Statistical analysis (issue #14, `src/stats.py`)
+
+### Framework
+
+- **We follow Demšar (2006)**, the mandatory reading of the assignment: Wilcoxon signed-ranks
+  for two configurations; Friedman plus a post-hoc test for more; CD diagrams to present them. *Why:* the assignment
+  asks for "a T-Test or another statistical method [2]", and the course
+  slides summarise Demšar's recommendations. (decided)
+- **Blocks are the 10 folds of one dataset; each dataset is analysed separately.**
+  *Why:* Demšar's blocks are different datasets, but we only have two. *Limitation:* folds are
+  not independent (their training sets overlap). Demšar (Section 3.2.3) notes that no test
+  accounts for this, so the report must mention it. (decided / limitation)
+- **Significance level alpha = 0.05** for every test unless stated otherwise. (decided)
+
+### Score table and ranks
+
+- **Input is a folds x configurations table** (`score_table`): one metric, one dataset, one column
+  per `model[params]`. A configuration missing a fold, or with a duplicated fold, raises
+  `ValueError`. *Why:* all tests are paired fold by fold (Demšar, Section 1). (decided)
+- **Direction per metric:** accuracy, higher is better; time and storage, lower is better. (decided)
+- **Ranks:** 1 = best inside each fold, ties get the average rank (Demšar, Section 3.2.2). (decided)
+
+### Two configurations
+
+- **Wilcoxon signed-ranks decides; the paired t-test is reported only as a reference.**
+  *Why:* Demšar (Section 3.1.2) shows the t-test needs normal differences with fewer than ~30
+  blocks; the assignment mentions the t-test, so we still report it. (decided)
+- **Zeros follow Demšar's rule** (split evenly between R+ and R-, one ignored if their number is
+  odd) and the **p-value is exact** (all sign patterns). *Why:* `scipy.stats.wilcoxon` handles
+  zeros differently and switches to a normal approximation with ties or zeros. (decided)
+
+### Three or more configurations
+
+- **Friedman is computed with Demšar's formula, and the decision uses the Iman-Davenport F_F.**
+  *Why:* `scipy.stats.friedmanchisquare` applies a tie correction the paper does not use; the
+  chi-square approximation is conservative and needs N > 10 and k > 5, while we have N = 10 (Demšar, Section 3.2.2).
+  (decided)
+- **Post-hoc only after a significant Friedman test:**
+    - **Nemenyi** for all-against-all comparisons;
+    - **Bonferroni-Dunn** when there is a control (e.g. kNN without reduction vs the reduction
+      techniques). It is more powerful because it makes k - 1 comparisons instead of
+      k (k - 1)/2 (Demšar, p. 12). (decided)
+- **Critical values are computed, not copied:** Nemenyi q = studentized range / sqrt (2) with
+  infinite degrees of freedom; Bonferroni-Dunn q = z_{1 - alpha / (2 (k - 1))}. Both reproduce
+  Demšar's Table 5 and also work for k > 10. Table 5 (b) prints 2.724 for k = 9, alpha = 0.05; the
+  formula and the neighbouring entries give 2.734, so we treat it as a typo. (decided)
+- **kNN grid (k = 96 configurations):** with N = 10 the Nemenyi CD is very large, so almost no
+  pair can differ. Proposal: Friedman on the whole grid, then the post-hoc on a reasoned subset (e.g. the best
+  configuration per factor). (pending)
+
+### Presentation
+
+- **CD diagrams follow Demšar's Figure 1:** best rank on the right; Nemenyi groups joined by a
+  thick line; for Bonferroni-Dunn, the interval of one CD around the control, drawn exactly (no padding) because its
+  limits decide significance. The control label is bold. (decided)
+
+### How the module was checked
+
+- Demšar Table 2: R+ = 93, R- = 12. Table 6: mean ranks 3.143 / 2.000 / 2.893 / 1.964,
+  chi2_F = 9.28, F_F = 3.69. Table 5 (a) and 5 (b) critical values. CD = 1.25 and 1.12 (Nemenyi)
+  and 1.16 (Bonferroni-Dunn), with the conclusions of p. 14 and the groups of Figure 1 (a).
+- The exact Wilcoxon p-value matches `scipy.stats.wilcoxon(method="exact")` when there are no
+  ties or zeros.
 
 ---
 
@@ -324,7 +398,8 @@ Status: **decided** / **pending**.
     - *Why:* Like the Random Forest, standard SVMs interpret distance geometrically. Feeding raw integer categorical
       codes would create false distances and orderings between nominal values (e.g., A/C/G/T). One-hot encoding ensures
       orthogonal geometric distances between categories. (decided)
-- ## Hyperparameter Tuning (Grid Search)
+
+## Hyperparameter Tuning (Grid Search)
 
 ### Manual Implementation (`experiments/gridsearch.py`)
 
@@ -349,41 +424,41 @@ Status: **decided** / **pending**.
   folds and selecting the hyperparameters that yield the highest mean accuracy, the test sets are effectively acting as
   validation sets.
     - *Consequence:* This introduces a slight optimization bias. The reported maximum accuracies (e.g., 96.90% on
-      Splice, 99.09% on Vowel) represent an optimistic upper bound rather than completely unseen generalizability.
-    - *Why we accepted this:* To perform a strictly unbiased evaluation with predefined folds, we would need to
-      implement Nested Cross-Validation (splitting the train folds further into internal train/val sets). Given the
-      scope of the assignment and the rigid nature of the predefined 10 folds, we adhered to the standard CV evaluation
-      approach but acknowledge the optimistic bias in the analysis. (decided)
+      Splice, 99.09% on Vowel) represent an optimistic upper bound rather than completely unseen generalizability. This
+      is only a template for the later statistical analyses.
 
 ## Methods and libraries used
 
-| Area                                 | Method / strategy                                                                                                   | Implemented with                                                             | Where                                 |
-|--------------------------------------|---------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|---------------------------------------|
-| Reading ARFF                         | Parse header and rows; keep features, missing mask and class apart                                                  | `scipy.io.arff.loadarff` + own wrapper (`TrainMatrix` / `TestMatrix`)        | `src/arff_parser.py`                  |
-| Fold handling                        | The 10 predefined train/test pairs, read as they are                                                                | Own code (`config.fold_paths`, `load_fold`)                                  | `src/config.py`, `src/arff_parser.py` |
-| Dropped columns                      | Configurable list, defaults per dataset                                                                             | Own code (`DEFAULT_DROP`)                                                    | `src/preprocessing.py`                |
-| Numeric missing values               | Train mean                                                                                                          | `sklearn.impute.SimpleImputer(strategy="mean", keep_empty_features=True)`    | `src/preprocessing.py`                |
-| Numeric scaling                      | Min-max to [0,1] with the train range, test clipped                                                                 | `sklearn.preprocessing.MinMaxScaler(clip=True)`                              | `src/preprocessing.py`                |
-| Constant numeric column              | Set to 0                                                                                                            | Own code (numpy), after the scaler                                           | `src/preprocessing.py`                |
-| Nominal missing values               | Train mode on the text values; ties go to the first in alphabetical order                                           | `sklearn.impute.SimpleImputer(strategy="most_frequent")`                     | `src/preprocessing.py`                |
-| Columns with too many missing values | More than `max_missing` (50%) in train: `ValueError` listing all of them, or drop with `on_missing="drop"`          | Own code (check before the pipelines)                                        | `src/preprocessing.py`                |
-| Rows with an unknown class           | Removed with a warning                                                                                              | Own code (boolean mask)                                                      | `src/preprocessing.py`                |
-| Nominal encoding                     | Integer code = position in the ARFF header, one column per attribute; a value not in the header raises `ValueError` | `sklearn.preprocessing.OrdinalEncoder(categories=header)`                    | `src/preprocessing.py`                |
-| No columns of one type               | Skip that pipeline (sklearn rejects 0 columns; splice has no numeric ones)                                          | Own code (`if`)                                                              | `src/preprocessing.py`                |
-| Chaining the steps                   | Fit on train, transform train and test                                                                              | `sklearn.pipeline.make_pipeline` (one pipeline for numeric, one for nominal) | `src/preprocessing.py`                |
-| One-hot for SVM / RF                 | One 0/1 column per header value, built from the integer codes                                                       | Own code (`np.eye`) in `Preprocessed.to_onehot()`                            | `src/preprocessing.py`                |
-| Class labels                         | Kept unchanged; integer code = position in the header                                                               | Own code (dict lookup)                                                       | `src/preprocessing.py`                |
-| Single ML Entry point                | Created a single entry point for all the ML model runs                                                              | Own code                                                                     | `experiments/run.py`                  |
-| Experiment runner                    | Run the 10 predefined folds and collect common evaluation metrics                                                   | Own code                                                                     | `src/experiment_runner.py`            |
-| Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                 | `src/experiment_runner.py`            |
-| Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                    | `src/models/random_forest.py`         |
-| Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                            | `src/models/svm.py`                   |
-| Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                     | `src/experiments/grid_search.py`      |
-| EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                      | `experiments/eda.py`                  |
-| EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                | `experiments/eda.py`                  |
-| EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                     | `experiments/eda.py`                  |
+| Area                                 | Method / strategy                                                                                                   | Implemented with                                                                                 | Where                                 |
+|--------------------------------------|---------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|---------------------------------------|
+| Reading ARFF                         | Parse header and rows; keep features, missing mask and class apart                                                  | `scipy.io.arff.loadarff` + own wrapper (`TrainMatrix` / `TestMatrix`)                            | `src/arff_parser.py`                  |
+| Fold handling                        | The 10 predefined train/test pairs, read as they are                                                                | Own code (`config.fold_paths`, `load_fold`)                                                      | `src/config.py`, `src/arff_parser.py` |
+| Dropped columns                      | Configurable list, defaults per dataset                                                                             | Own code (`DEFAULT_DROP`)                                                                        | `src/preprocessing.py`                |
+| Numeric missing values               | Train mean                                                                                                          | `sklearn.impute.SimpleImputer(strategy="mean", keep_empty_features=True)`                        | `src/preprocessing.py`                |
+| Numeric scaling                      | Min-max to [0,1] with the train range, test clipped                                                                 | `sklearn.preprocessing.MinMaxScaler(clip=True)`                                                  | `src/preprocessing.py`                |
+| Constant numeric column              | Set to 0                                                                                                            | Own code (numpy), after the scaler                                                               | `src/preprocessing.py`                |
+| Nominal missing values               | Train mode on the text values; ties go to the first in alphabetical order                                           | `sklearn.impute.SimpleImputer(strategy="most_frequent")`                                         | `src/preprocessing.py`                |
+| Columns with too many missing values | More than `max_missing` (50%) in train: `ValueError` listing all of them, or drop with `on_missing="drop"`          | Own code (check before the pipelines)                                                            | `src/preprocessing.py`                |
+| Rows with an unknown class           | Removed with a warning                                                                                              | Own code (boolean mask)                                                                          | `src/preprocessing.py`                |
+| Nominal encoding                     | Integer code = position in the ARFF header, one column per attribute; a value not in the header raises `ValueError` | `sklearn.preprocessing.OrdinalEncoder(categories=header)`                                        | `src/preprocessing.py`                |
+| No columns of one type               | Skip that pipeline (sklearn rejects 0 columns; splice has no numeric ones)                                          | Own code (`if`)                                                                                  | `src/preprocessing.py`                |
+| Chaining the steps                   | Fit on train, transform train and test                                                                              | `sklearn.pipeline.make_pipeline` (one pipeline for numeric, one for nominal)                     | `src/preprocessing.py`                |
+| One-hot for SVM / RF                 | One 0/1 column per header value, built from the integer codes                                                       | Own code (`np.eye`) in `Preprocessed.to_onehot()`                                                | `src/preprocessing.py`                |
+| Class labels                         | Kept unchanged; integer code = position in the header                                                               | Own code (dict lookup)                                                                           | `src/preprocessing.py`                |
+| Single ML Entry point                | Created a single entry point for all the ML model runs                                                              | Own code                                                                                         | `experiments/run.py`                  |
+| Experiment runner                    | Run the 10 predefined folds and collect common evaluation metrics                                                   | Own code                                                                                         | `src/experiment_runner.py`            |
+| Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                                     | `src/experiment_runner.py`            |
+| Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                                        | `src/models/random_forest.py`         |
+| Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                                                | `src/models/svm.py`                   |
+| Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `src/experiments/grid_search.py`      |
+| EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |
+| EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                                    | `experiments/eda.py`                  |
+| EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                                         | `experiments/eda.py`                  |
+| Statistical tests                    | Wilcoxon (exact), Friedman + Iman-Davenport, Nemenyi, Bonferroni-Dunn, paired t-test                                | Own code + `scipy.stats` distributions (`chi2`, `f`, `norm`, `studentized_range`, `ttest_1samp`) | `src/stats.py`                        |
+| CD diagram                           | Demšar (2006), Figure 1                                                                                             | `matplotlib`                                                                                     | `src/stats.py`                        |
 
 Not used (on purpose):
+
 
 - **scikit-learn in the kNN or in the instance reduction.** Both must be our own code.
 - **`sklearn.preprocessing.OneHotEncoder`.** The one-hot is built with `np.eye` from the integer
@@ -396,7 +471,10 @@ Not used (on purpose):
 - **`StandardScaler` / z-score.** The assignment asks for [0,1].
 - **Discretization (`pandas.qcut`) and missing-indicator columns.** Optional and not needed here.
 - **Re-splitting (`train_test_split`, `KFold`).** The folds are predefined.
-
+- **`scipy.stats.friedmanchisquare` and `scipy.stats.wilcoxon` for the decisions.** They handle
+  ties and zeros differently from Demšar (2006); `wilcoxon` is only used in a test as a check.
+- **`scikit-posthocs`.** Not in the allowed packages; Nemenyi, Bonferroni-Dunn and the CD
+  diagram are a few lines of our own code.
 ---
 
 ## Pending decisions
