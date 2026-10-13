@@ -8,10 +8,12 @@ Datasets: `splice` (3190 cases, nominal) and `vowel` (990 cases, numeric + nomin
 both with predefined 10-fold train/test splits in `datasets/`.
 
 ## Requirements
+
 - Python 3.11
 - Only the packages in `requirements.txt` (pinned versions).
 
 ## Setup
+
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -19,6 +21,7 @@ pip install -r requirements.txt
 ```
 
 ## Running the experiments
+
 Experiments use the predefined 10-fold train/test splits provided in
 `datasets/`. The folds must not be modified.
 
@@ -45,6 +48,7 @@ The main entry point for all experiments is `experiments/run.py`. It uses a sing
 to execute any implemented model across the 10 folds of a given dataset.
 
 **General Command Structure:**
+
 ```bash
 python experiments/run.py --dataset <name> --classifier <model_id> [model_hyperparameters...]
 ```
@@ -55,14 +59,14 @@ python experiments/run.py --dataset <name> --classifier <model_id> [model_hyperp
 
 - --classifier (string): The model to execute. Valid values: baseline, rf.
 
--  --out (optional, path): Destination for the CSV results. Defaults to results/<classifier>_<dataset>.csv.
+- --out (optional, path): Destination for the CSV results. Defaults to results/<classifier>_<dataset>.csv.
 
 **Model-Specific Hyperparameters:**
 
 These parameters are passed as optional flags. If omitted, the model will fall back to its internal defaults.
 
 - Majority Baseline (--classifier baseline)
-  - No additional hyperparameters required.
+    - No additional hyperparameters required.
 
   Example:
     ```bash
@@ -71,24 +75,60 @@ These parameters are passed as optional flags. If omitted, the model will fall b
 
 - Random Forest (`--classifier rf`)
 
-- `--n_estimators` (integer): Number of trees in the forest. Default: Scikit-learn default (100).
+    - `--n_estimators` (integer): Number of trees in the forest. Default: Scikit-learn default (100).
 
-- `--criterion` (string): The function to measure the quality of a split. Must be one of: `gini`, `entropy`, or `log_loss`. Default: Scikit-learn default ("gini").
+    - `--criterion` (string): The function to measure the quality of a split. Must be one of: `gini`, `entropy`, or
+      `log_loss`. Default: Scikit-learn default ("gini").
 
-- `--max_depth` (integer or 'None'): Maximum depth of the trees. Default: Scikit-learn default (None).
+    - `--max_depth` (integer or 'None'): Maximum depth of the trees. Default: Scikit-learn default (None).
 
-- `--max_features` (integer, float, 'sqrt', 'log2', or 'None'): The number of features to consider when looking for the best split. Float values represent a fraction. Default: Scikit-learn default ("sqrt").
+    - `--max_features` (integer, float, 'sqrt', 'log2', or 'None'): The number of features to consider when looking for
+      the
+      best split. Float values represent a fraction. Default: Scikit-learn default ("sqrt").
 
-- `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn default (1).
+    - `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn
+      default (1).
 
-- `--random_state` (integer, None): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
+    - `--random_state` (integer, None): Seed for the random forest estimator to ensure reproducibility. Default: The
+      project's fixed seed (`config.SEED`).
 
-- `--n_jobs` (integer, None): The number of jobs to run in parallel. fit, predict, decision_path and apply are all parallelized over the trees. Default: None
+    - `--n_jobs` (integer, None): The number of jobs to run in parallel. fit, predict, decision_path and apply are all
+      parallelized over the trees. Default: None
 
-    Example:
+  Example:
     ```bash
-    python experiments/run.py --dataset splice --classifier rf --n_estimators 200 --max_depth 10
+      python experiments/run.py --dataset splice --classifier rf --n_estimators 200 --max_depth 10
     ```
+- Support Vector Machine (`--classifier svm`)
+
+    - `--C` (float): Regularization parameter. The strength of the regularization is inversely proportional to C.
+      Default: Scikit-learn default (1.0).
+
+    - `--kernel` (string): Specifies the kernel type to be used. Must be one of: `linear`, `poly`, `rbf`, or `sigmoid`.
+      Default: Scikit-learn default ("rbf").
+
+    - `--gamma` (float, 'scale', or 'auto'): Kernel coefficient for 'rbf', 'poly' and 'sigmoid'. Default: Scikit-learn
+      default ("scale").
+
+    - `--degree` (integer): Degree of the polynomial kernel function ('poly'). Ignored by all other kernels. Default:
+      Scikit-learn default (3).
+
+    - `--class_weight` ('balanced' or 'None'): Set to 'balanced' to automatically adjust weights inversely proportional
+      to class frequencies (useful for imbalanced datasets like `splice`). Default: None.
+
+    - `--coef0` (float): Independent term in kernel function. Only significant in 'poly' and 'sigmoid'. Default: 0.0.
+
+    - `--max_iter` (integer): Hard limit on iterations within solver, or -1 for no limit. Default: -1.
+
+    - `--tol` (float): Tolerance for stopping criterion. Default 1e-3.
+
+    - `--random_state` (integer or 'None'): Seed for probability estimation and shuffling. Default: The project's fixed
+      seed (`config.SEED`).
+
+      Example:
+        ```bash
+        python experiments/run.py --dataset splice --classifier svm --C 1.5 --max_iter 1000
+        ```
 
 The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
 Use `--out <path>` to select another destination.
@@ -146,6 +186,7 @@ save_results(results, "results/my_model_vowel.csv")
 See `docs/DECISIONS.md` for the full classifier and storage contract.
 
 ## EDA
+
 Figures and a text summary of the preprocessed datasets (class distribution, vowel
 histograms and PCA, splice nucleotide frequencies). Run from the project root:
 
@@ -157,11 +198,25 @@ Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vo
 `all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
 changes the output folder.
 
+## Grid Search for Random Forest and Support Vector Machine classifiers
+
+Extracts the approximated optimal hyperparameters for each model and each dataset performing GridSearch.
+Run from the project root:
+
+```bash
+python experiments/grid_search.py --dataset all --classifier all --out .
+```
+
+Output goes to `results/gridsearch/` (not committed). `--dataset` accepts `splice`, `vowel` or
+`all`; `--classifier` accepts `rf`, `svm`, or `all`;`--out`
+changes the output folder.
+
 ## Layout
+
 - `src/` — source code
 - `tests/` — tests
 - `experiments/` — experiment scripts
-- `results/` — CSV results
+- `results/` — CSV and MD results
 - `report/` — report sources
 - `datasets/` — ARFF folds (do not modify)
 
@@ -170,6 +225,7 @@ changes the output folder.
 ## Development (team)
 
 ### One-time setup
+
 After the basic setup above, every team member runs once:
 
 ```bash
@@ -179,13 +235,14 @@ pre-commit install
 
 What gets installed:
 
-| Command | Installs | Purpose |
-|---|---|---|
-| `pip install -r requirements.txt` | numpy, scipy, pandas, scikit-learn, matplotlib, seaborn | Packages allowed by the assignment; the only ones the final code may use. |
-| `pip install -r requirements-dev.txt` | ruff, pytest, pre-commit | Development tools only (lint/format, tests, git hooks). Not needed to run the experiments. |
-| `pre-commit install` | A git hook in `.git/hooks/` | Runs the checks below automatically on every `git commit`. The first commit downloads the hook environments, so it can take a minute. |
+| Command                               | Installs                                                | Purpose                                                                                                                               |
+|---------------------------------------|---------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `pip install -r requirements.txt`     | numpy, scipy, pandas, scikit-learn, matplotlib, seaborn | Packages allowed by the assignment; the only ones the final code may use.                                                             |
+| `pip install -r requirements-dev.txt` | ruff, pytest, pre-commit                                | Development tools only (lint/format, tests, git hooks). Not needed to run the experiments.                                            |
+| `pre-commit install`                  | A git hook in `.git/hooks/`                             | Runs the checks below automatically on every `git commit`. The first commit downloads the hook environments, so it can take a minute. |
 
 The pre-commit hooks:
+
 - `ruff` and `ruff format`: lint and format the code.
 - Block files larger than 2 MB (avoids committing results or data by accident).
 - Fix missing end-of-file newlines and trailing whitespace.
@@ -196,6 +253,7 @@ If a hook modifies files, the commit is aborted: review the changes, `git add` t
 and commit again.
 
 ### Checks
+
 Run locally before pushing (the same checks run in GitHub Actions on every pull request):
 
 ```bash
@@ -206,12 +264,15 @@ pre-commit run --all-files
 ```
 
 ### Workflow
+
 1. Pick an issue and assign it to yourself: comment `request` on it (see Automation).
 2. Create a branch from an up-to-date `main`:
+
 ```bash
    git switch main && git pull
    git switch -c feat/<short-name>
 ```
+
 3. Commit small, focused changes. The pre-commit hooks run automatically.
 4. Push and open a pull request that references the issue (`Closes #n`).
 5. CI must pass before merging. Asking a teammate to take a look is welcome but not required.
@@ -219,6 +280,7 @@ pre-commit run --all-files
 `main` is protected: do not push to it directly.
 
 ### Rules of the project
+
 - The kNN is implemented from scratch (no ML libraries in that part).
 - scikit-learn is used for SVM, Random Forest and preprocessing. The kNN and the
   instance reduction are our own code.
@@ -229,13 +291,14 @@ pre-commit run --all-files
 - Keep this README up to date when the way to install or run the project changes.
 
 ### Automation (GitHub Actions)
-| What | When | Behaviour |
-|---|---|---|
-| **CI** | Every pull request | Installs dependencies with Python 3.11, runs `ruff` and `pytest`. Required to merge. |
-| **PR checks** | Every pull request | Warns (red check, not blocking) if the description does not link an issue. Adds labels by folder (`knn`, `reduction`, `models`, `stats`, `report`, `infra`) and a size label (`size/S`, `size/M`, `size/L`). |
-| **Stale PR reminder** | Weekdays | Comments on pull requests with no activity for 2 days. Never closes anything. Add the `wip` label or use a draft PR to be ignored. |
-| **Daily digest** | Weekdays, 09:00 (Spain) | Updates the "Team digest (automated)" issue with open PRs and the current milestone. Adds a comment mentioning people only when a PR is stalled or a milestone is due within 2 days. |
-| **Self-assign** | When commenting on an issue | Comment `request` (or `/request`, `/assign`) to assign the issue to yourself, `/unassign` to remove yourself. The comment must contain only that word. |
+
+| What                  | When                        | Behaviour                                                                                                                                                                                                    |
+|-----------------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **CI**                | Every pull request          | Installs dependencies with Python 3.11, runs `ruff` and `pytest`. Required to merge.                                                                                                                         |
+| **PR checks**         | Every pull request          | Warns (red check, not blocking) if the description does not link an issue. Adds labels by folder (`knn`, `reduction`, `models`, `stats`, `report`, `infra`) and a size label (`size/S`, `size/M`, `size/L`). |
+| **Stale PR reminder** | Weekdays                    | Comments on pull requests with no activity for 2 days. Never closes anything. Add the `wip` label or use a draft PR to be ignored.                                                                           |
+| **Daily digest**      | Weekdays, 09:00 (Spain)     | Updates the "Team digest (automated)" issue with open PRs and the current milestone. Adds a comment mentioning people only when a PR is stalled or a milestone is due within 2 days.                         |
+| **Self-assign**       | When commenting on an issue | Comment `request` (or `/request`, `/assign`) to assign the issue to yourself, `/unassign` to remove yourself. The comment must contain only that word.                                                       |
 
 Milestones: M1 base (9 Oct), M2 kNN and models (16 Oct), M3 reduction and
 experiments (21 Oct), M4 report (25 Oct).

@@ -18,12 +18,13 @@ import config  # noqa: E402
 from experiment_runner import run_experiment, save_results  # noqa: E402
 from models.majority_baseline import MajorityBaseline  # noqa: E402
 from models.random_forest import RandomForest  # noqa: E402
+from models.svm import SVM  # noqa: E402
 
 CLASSIFIERS = {
     "baseline": (MajorityBaseline, "Majority Baseline"),
     "rf": (RandomForest, "Random Forest"),
+    "svm": (SVM, "Support Vector Machine"),
     # "knn": (KNNClassifier, "K-Nearest Neighbors"),
-    # "svm": (SVMClassifier, "Support Vector Machine"),
 }
 
 
@@ -65,7 +66,7 @@ def main() -> int:
         dataset=args.dataset,
         classifier=model_instance.fit_predict,
         model_name=CLASSIFIERS[args.classifier][1],
-        params=params,
+        params=model_instance.params,
     )
     output = args.out or config.RESULTS_DIR / f"{args.classifier}_{args.dataset}.csv"
     save_results(results, output)

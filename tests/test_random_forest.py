@@ -48,12 +48,15 @@ def test_parse_params_handles_nullable_ints():
     assert rf_int.params["n_jobs"] == -1
 
 
+def test_parse_params_rejects_unknown():
+    # To keep fail-fast, unknown parameters raise an error
+    with pytest.raises(ValueError, match="Unknown Random Forest parameters provided"):
+        RandomForest({"unknown_flag": "true"})
+
+
 def test_parse_params_injects_all_defaults():
     # If parameters are omitted, it should inject our predefined defaults
-    rf = RandomForest({"unknown_flag": "true"})
-
-    # Unknown flags are kept
-    assert rf.params["unknown_flag"] == "true"
+    rf = RandomForest({})
 
     # Defaults are injected
     assert rf.params["n_estimators"] == 100
