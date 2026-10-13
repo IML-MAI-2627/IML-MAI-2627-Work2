@@ -39,35 +39,107 @@ For reduction experiments, storage is the percentage of the original
 training instances retained by the classifier. A classifier using the complete
 training set therefore has a storage of 100%.
 
-### Run the reference baseline
+### Running the Models
 
-The majority-class baseline exercises the complete runner and writes one row per fold:
+The main entry point for all experiments is `experiments/run.py`. It uses a single command-line interface
+to execute any implemented model across the 10 folds of a given dataset.
 
+**General Command Structure:**
 ```bash
-python experiments/run_baseline.py --dataset vowel
-python experiments/run_baseline.py --dataset splice
+python experiments/run.py --dataset <name> --classifier <model_id> [model_hyperparameters...]
 ```
+
+**Required Core Parameters:**
+
+- --dataset (string): The dataset to use. Valid values: vowel, splice.
+
+- --classifier (string): The model to execute. Valid values: baseline, rf.
+
+-  --out (optional, path): Destination for the CSV results. Defaults to results/<classifier>_<dataset>.csv.
+
+**Model-Specific Hyperparameters:**
+
+These parameters are passed as optional flags. If omitted, the model will fall back to its internal defaults.
+
+- Majority Baseline (--classifier baseline)
+  - No additional hyperparameters required.
+
+  Example:
+    ```bash
+    python experiments/run.py --dataset vowel --classifier baseline
+    ```
+
+- Random Forest (`--classifier rf`)
+
+- `--n_estimators` (integer): Number of trees in the forest. Default: Scikit-learn default (100).
+
+- `--criterion` (string): The function to measure the quality of a split. Must be one of: `gini`, `entropy`, or `log_loss`. Default: Scikit-learn default ("gini").
+
+- `--max_depth` (integer or 'None'): Maximum depth of the trees. Default: Scikit-learn default (None).
+
+- `--max_features` (integer, float, 'sqrt', 'log2', or 'None'): The number of features to consider when looking for the best split. Float values represent a fraction. Default: Scikit-learn default ("sqrt").
+
+- `--min_samples_leaf` (integer): Minimum number of samples required to be at a leaf node. Default: Scikit-learn default (1).
+
+- `--random_state` (integer, None): Seed for the random forest estimator to ensure reproducibility. Default: The project's fixed seed (`config.SEED`).
+
+- `--n_jobs` (integer, None): The number of jobs to run in parallel. fit, predict, decision_path and apply are all parallelized over the trees. Default: None
+
+    Example:
+    ```bash
+    python experiments/run.py --dataset splice --classifier rf --n_estimators 200 --max_depth 10
+    ```
 
 The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
 Use `--out <path>` to select another destination.
 
-### Connect a model
+### Create a model
 
-Each classifier receives a preprocessed train/test pair and returns its class-code predictions
-and the number of training instances it retained. The runner calculates metrics, timing and
-storage percentage, then writes the common CSV schema. This is the interface used by kNN, SVM,
-Random Forest and their reduced-data variants:
+Each classifier now inherits from the BaseClassifier class. This object-oriented design
+allows each model to validate its own hyperparameters and encapsulate its execution logic.
+
+The model must implement the fit_predict method, which receives a preprocessed train/test
+pair and returns its class-code predictions along with the number of training instances it
+retained. The runner calculates metrics, timing, and storage percentage, then writes the common CSV schema.
+
+This is the interface used by kNN, SVM, Random Forest, and their reduced-data variants:
 
 ```python
+from models.classifier_base import BaseClassifier
 from experiment_runner import ClassificationResult, run_experiment, save_results
+from preprocessing import Preprocessed
 
 
-def classifier(train, test) -> ClassificationResult:
-    predictions = ...  # one integer class code per test row
-    return ClassificationResult(predictions=predictions, storage=len(train.y))
+class MyModel(BaseClassifier):
+    def parse_params(self):
+        """Optional: Validate and cast hyperparameters from the CLI."""
+        # Example: self.params is populated from the command line
+        self.k = int(self.params.get("k", 3))
+
+    def prepare_data(self):
+        """We prepare the data for the model fit and predict."""
+        return train_X, train_y, test_X, test_y
+
+    def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
+        """Core training and prediction logic."""
+        # 1. Train the model using the prepared data from self.prepare_data()
+        # 2. Predict the test instances
+        predictions = ...  # one integer class code per test row
+        return ClassificationResult(predictions=predictions, storage=len(train.y))
 
 
-results = run_experiment("vowel", classifier, model_name="my_model", params="...")
+# ---------------------------------------------------------
+# Execution (handled automatically inside run.py)
+# ---------------------------------------------------------
+params = {"k": 5}
+model_instance = MyModel(params)
+
+results = run_experiment(
+    dataset="vowel",
+    classifier=model_instance.fit_predict,  # Inject the bound method
+    model_name="my_model",
+    params=params,
+)
 save_results(results, "results/my_model_vowel.csv")
 ```
 
