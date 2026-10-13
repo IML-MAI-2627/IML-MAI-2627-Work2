@@ -170,6 +170,65 @@ test) method.
   - *Why:* the seed reset in `run_experiment` only reaches models that use numpy's global random state; an explicit `random_state` is reproducible regardless. (decided)
 ---
 
+## Statistical analysis (issue #14, `src/stats.py`)
+
+### Framework
+- **We follow Demšar (2006)**, the mandatory reading of the assignment: Wilcoxon signed-ranks
+  for two configurations; Friedman plus a post-hoc test for more; CD diagrams to present them.
+  *Why:* the assignment asks for "a T-Test or another statistical method [2]", and the course
+  slides summarise Demšar's recommendations. (decided)
+- **Blocks are the 10 folds of one dataset; each dataset is analysed separately.**
+  *Why:* Demšar's blocks are different datasets, but we only have two. *Limitation:* folds are
+  not independent (their training sets overlap). Demšar (Section 3.2.3) notes that no test
+  accounts for this, so the report must mention it. (decided / limitation)
+- **Significance level alpha = 0.05** for every test unless stated otherwise. (decided)
+
+### Score table and ranks
+- **Input is a folds x configurations table** (`score_table`): one metric, one dataset, one column
+  per `model[params]`. A configuration missing a fold, or with a duplicated fold, raises
+  `ValueError`. *Why:* all tests are paired fold by fold (Demšar, Section 1). (decided)
+- **Direction per metric:** accuracy, higher is better; time and storage, lower is better. (decided)
+- **Ranks:** 1 = best inside each fold, ties get the average rank (Demšar, Section 3.2.2). (decided)
+
+### Two configurations
+- **Wilcoxon signed-ranks decides; the paired t-test is reported only as a reference.**
+  *Why:* Demšar (Section 3.1.2) shows the t-test needs normal differences with fewer than ~30
+  blocks; the assignment mentions the t-test, so we still report it. (decided)
+- **Zeros follow Demšar's rule** (split evenly between R+ and R-, one ignored if their number is
+  odd) and the **p-value is exact** (all sign patterns). *Why:* `scipy.stats.wilcoxon` handles
+  zeros differently and switches to a normal approximation with ties or zeros. (decided)
+
+### Three or more configurations
+- **Friedman is computed with Demšar's formula, and the decision uses the Iman-Davenport F_F.**
+  *Why:* `scipy.stats.friedmanchisquare` applies a tie correction the paper does not use; the
+  chi-square approximation is conservative and needs N > 10 and k > 5, while we have N = 10
+  (Demšar, Section 3.2.2). (decided)
+- **Post-hoc only after a significant Friedman test:**
+  - **Nemenyi** for all-against-all comparisons;
+  - **Bonferroni-Dunn** when there is a control (e.g. kNN without reduction vs the reduction
+    techniques). It is more powerful because it makes k - 1 comparisons instead of
+    k(k - 1)/2 (Demšar, p. 12). (decided)
+- **Critical values are computed, not copied:** Nemenyi q = studentized range / sqrt(2) with
+  infinite degrees of freedom; Bonferroni-Dunn q = z_{1 - alpha / (2(k - 1))}. Both reproduce
+  Demšar's Table 5 and also work for k > 10. Table 5(b) prints 2.724 for k = 9, alpha = 0.05; the
+  formula and the neighbouring entries give 2.734, so we treat it as a typo. (decided)
+- **kNN grid (k = 96 configurations):** with N = 10 the Nemenyi CD is very large, so almost no
+  pair can differ. Proposal: Friedman on the whole grid, then the post-hoc on a reasoned subset
+  (e.g. the best configuration per factor). (pending)
+
+### Presentation
+- **CD diagrams follow Demšar's Figure 1:** best rank on the right; Nemenyi groups joined by a
+  thick line; for Bonferroni-Dunn, the interval of one CD around the control, drawn exactly
+  (no padding) because its limits decide significance. The control label is bold. (decided)
+
+### How the module was checked
+- Demšar Table 2: R+ = 93, R- = 12. Table 6: mean ranks 3.143 / 2.000 / 2.893 / 1.964,
+  chi2_F = 9.28, F_F = 3.69. Table 5(a) and 5(b) critical values. CD = 1.25 and 1.12 (Nemenyi)
+  and 1.16 (Bonferroni-Dunn), with the conclusions of p. 14 and the groups of Figure 1(a).
+- The exact Wilcoxon p-value matches `scipy.stats.wilcoxon(method="exact")` when there are no
+  ties or zeros.
+---
+
 ## Random Forest (issue #13, `src/models/random_forest.py`)
 
 ### OOP Architecture and Scikit-learn integration
@@ -238,7 +297,8 @@ test) method.
 | EDA figures | Class counts, histograms, nucleotide heatmaps | `matplotlib`, `seaborn` | `experiments/eda.py` |
 | EDA projection | PCA in 2D | Own code (`numpy.linalg.svd`) | `experiments/eda.py` |
 | EDA export | Preprocessed fold as CSV (one-hot + class) | `pandas` | `experiments/eda.py` |
-
+| Statistical tests | Wilcoxon (exact), Friedman + Iman-Davenport, Nemenyi, Bonferroni-Dunn, paired t-test | Own code + `scipy.stats` distributions (`chi2`, `f`, `norm`, `studentized_range`, `ttest_1samp`) | `src/stats.py` |
+| CD diagram | Demšar (2006), Figure 1 | `matplotlib` | `src/stats.py` |
 Not used (on purpose):
 - **scikit-learn in the kNN or in the instance reduction.** Both must be our own code.
 - **`sklearn.preprocessing.OneHotEncoder`.** The one-hot is built with `np.eye` from the integer
@@ -251,7 +311,10 @@ Not used (on purpose):
 - **`StandardScaler` / z-score.** The assignment asks for [0,1].
 - **Discretization (`pandas.qcut`) and missing-indicator columns.** Optional and not needed here.
 - **Re-splitting (`train_test_split`, `KFold`).** The folds are predefined.
-
+- **`scipy.stats.friedmanchisquare` and `scipy.stats.wilcoxon` for the decisions.** They handle
+  ties and zeros differently from Demšar (2006); `wilcoxon` is only used in a test as a check.
+- **`scikit-posthocs`.** Not in the allowed packages; Nemenyi, Bonferroni-Dunn and the CD
+  diagram are a few lines of our own code.
 ---
 
 ## Pending decisions
