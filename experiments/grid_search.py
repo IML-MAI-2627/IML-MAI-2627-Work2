@@ -345,10 +345,18 @@ def evaluate_results(out_dir: Path):
                             )
                             f.write(f"  -> CD Diagram saved to: {diagram_path.name}\n")
 
+                            groups = stats.nemenyi_groups(posthoc)
+                            best_rank_config = posthoc.mean_ranks.index[0]
+                            top_group = next(g for g in groups if best_rank_config in g)
                             best_rank_config = posthoc.mean_ranks.index[0]
                             best_rank_configs_data[best_rank_config] = filtered_table[
                                 best_rank_config
                             ]
+                            f.write(
+                                f"  Statistically Top Group (Equivalent to {best_rank_config}):\n"
+                            )
+                            for c in top_group:
+                                f.write(f"    * {c} (Mean Rank: {posthoc.mean_ranks[c]:.2f})\n")
                     except ValueError as e:
                         f.write(f"  -> Stats Error: {e}\n")
 
