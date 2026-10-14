@@ -7,9 +7,10 @@ from sklearn.neighbors import KNeighborsClassifier
 import config
 from distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from experiment_runner import ClassificationResult
-from knn_base import Neighbor, kNNAlgorithm
+from knn_base import Neighbor, kNNAlgorithm, run_kNN
 from models.knn import KNN, default_params
 from preprocessing import Preprocessed, preprocess_fold
+from retention import RETENTION, always_retain, different_class, never_retain
 from voting import VOTING, inverse_distance, majority
 
 
@@ -437,3 +438,65 @@ def test_real_fold_accuracy_is_far_above_chance():
 
     predictions = KNN({"k": 1}).fit_predict(train, test).predictions
     assert np.mean(np.asarray(predictions) == test.y_codes) > 0.9
+
+
+@pytest.fixture
+def retention_fold():
+    # 1-D, k=1. Train: x=0 (class 0), x=1 (class 1). Test: x=0.9 and x=0.85, both class 0.
+    # Without retention both are nearest to x=1 -> predicted 1 (wrong).
+    # Retaining the first one (x=0.9, class 0) makes it the nearest of the second -> 0.
+    no_nom = np.zeros((2, 0), dtype=int)
+    train = make_preprocessed([[0.0], [1.0]], no_nom, [0, 1])
+    test = make_preprocessed([[0.9], [0.85]], no_nom, [0, 0])
+    return train, test
+
+
+def test_never_retain_predictions(retention_fold):
+    train, test = retention_fold
+    run = run_kNN(train, test, 1, euclidean, majority, never_retain)
+    assert run.predictions == [1, 1]
+    assert run.case_base_size == 2
+
+
+def test_always_retain_uses_earlier_test_cases(retention_fold):
+    train, test = retention_fold
+    run = run_kNN(train, test, 1, euclidean, majority, always_retain)
+    assert run.predictions == [1, 0]
+    assert run.case_base_size == 4  # 2 train + both test cases
+
+
+def test_different_class_retains_only_mistakes(retention_fold):
+    train, test = retention_fold
+    run = run_kNN(train, test, 1, euclidean, majority, different_class)
+    assert run.predictions == [1, 0]
+    assert run.case_base_size == 3  # 2 train + the first (wrong) one; the second was right
+
+
+@pytest.mark.parametrize("k", [1, 3, 5])
+def test_never_retain_matches_batch_path(k):
+    # The one-by-one loop with NR must give exactly the fast batch predictions.
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"),)
+    train = make_preprocessed(
+        rng.random((20, 2)),
+        rng.integers(0, 3, size=(20, 1)),
+        rng.integers(0, 3, size=20),
+        nom_values,
+    )
+    test = make_preprocessed(
+        rng.random((15, 2)),
+        rng.integers(0, 3, size=(15, 1)),
+        rng.integers(0, 3, size=15),
+        nom_values,
+    )
+    sequential = run_kNN(train, test, k, euclidean, majority, never_retain)
+    assert sequential.predictions == kNNAlgorithm(train, test, k, euclidean, majority)
+    assert sequential.case_base_size == 20
+
+
+def test_retention_registry():
+    assert RETENTION == {
+        "never": never_retain,
+        "always": always_retain,
+        "different_class": different_class,
+    }
