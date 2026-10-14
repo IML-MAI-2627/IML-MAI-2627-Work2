@@ -10,7 +10,7 @@ from experiment_runner import ClassificationResult
 from knn_base import Neighbor, kNNAlgorithm
 from models.knn import KNN, default_params
 from preprocessing import Preprocessed, preprocess_fold
-from voting import VOTING, majority
+from voting import VOTING, inverse_distance, majority
 
 
 def make_preprocessed(X_num, X_nom, labels, nom_values=None) -> Preprocessed:
@@ -376,6 +376,35 @@ def as_neighbors(labels):
 )
 def test_majority_tie_goes_to_the_nearest_tied_class(labels, expected):
     assert majority(as_neighbors(labels)) == expected
+
+
+def test_inverse_distance_matches_hand_computed_vote():
+    # Class 0: 1/1 = 1.0. Class 1: 1/4 + 1/4 = 0.5. Class 0 wins, although majority says 1.
+    neighbors = [Neighbor(0, 1.0, 0), Neighbor(1, 4.0, 1), Neighbor(2, 4.0, 1)]
+    assert inverse_distance(neighbors) == 0
+    assert majority(neighbors) == 1
+
+
+def test_inverse_distance_tie_goes_to_nearest_neighbour():
+    # Class 0: 1/1 = 1.0. Class 1: 1/2 + 1/2 = 1.0. Exact tie -> class of the nearest (0).
+    neighbors = [Neighbor(0, 1.0, 0), Neighbor(1, 2.0, 1), Neighbor(2, 2.0, 1)]
+    assert inverse_distance(neighbors) == 0
+
+
+def test_inverse_distance_only_zero_distance_neighbours_vote():
+    # One identical case (d=0) beats two very close cases of another class.
+    neighbors = [Neighbor(0, 0.0, 1), Neighbor(1, 0.5, 0), Neighbor(2, 0.5, 0)]
+    assert inverse_distance(neighbors) == 1
+
+
+def test_inverse_distance_tie_between_zero_distance_neighbours_goes_to_first():
+    # Two identical cases of different classes: equal weight, the first (lowest index) wins.
+    neighbors = [Neighbor(3, 0.0, 1), Neighbor(5, 0.0, 0), Neighbor(1, 0.1, 0)]
+    assert inverse_distance(neighbors) == 1
+
+
+def test_inverse_distance_is_registered():
+    assert VOTING["inverse_distance"] is inverse_distance
 
 
 # ---------------------------------------------------------------------------
