@@ -413,7 +413,12 @@ Status: **decided** / **pending**.
       `BaseClassifier` interface. `fit_predict` only calls `kNNAlgorithm`. (decided)
 - **Own code with numpy, no scikit-learn** in `knn_base.py`, `distances.py`, `voting.py` and
   `models/knn.py`. scikit-learn's `KNeighborsClassifier` is used only in a test as a sanity check.
-  *Open question:* whether numpy is allowed in the kNN is still to be asked to the professor. (decided / pending)
+    - *Why:* Numpy is used for array operations inside our own kNN (distance matrix, sorting),
+        the kNN logic itself (neighbour selection, tie-breaking, voting) is our own code. On splice
+        it is ~100x faster than plain Python loops. (decided)
+- **Checked against scikit-learn (`KNeighborsClassifier`, brute force) on all 10 folds:** identical
+  predictions for k=1 on both datasets; for k>1 every difference comes from a tie (at the k-th
+  neighbour or in the vote), which we break deterministically and sklearn does not. (note)
 
 ### Neighbour retrieval
 
