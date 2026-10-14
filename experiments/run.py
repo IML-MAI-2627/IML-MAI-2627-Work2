@@ -1,7 +1,7 @@
-"""Run a majority-class baseline over the predefined 10 folds.
+"""Run one classifier over the predefined 10 folds.
 
 Run from the project root, for example:
-    python experiments/run.py --dataset vowel
+    python experiments/run.py --dataset vowel --classifier knn --k 3
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import config  # noqa: E402
 from experiment_runner import run_experiment, save_results  # noqa: E402
+from models.knn import KNN  # noqa: E402
 from models.majority_baseline import MajorityBaseline  # noqa: E402
 from models.random_forest import RandomForest  # noqa: E402
 from models.svm import SVM  # noqa: E402
@@ -24,7 +25,7 @@ CLASSIFIERS = {
     "baseline": (MajorityBaseline, "Majority Baseline"),
     "rf": (RandomForest, "Random Forest"),
     "svm": (SVM, "Support Vector Machine"),
-    # "knn": (KNNClassifier, "K-Nearest Neighbors"),
+    "knn": (KNN, "kNN"),
 }
 
 
