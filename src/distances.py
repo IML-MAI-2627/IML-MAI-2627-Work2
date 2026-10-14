@@ -25,6 +25,20 @@ def _nominal_mismatches(train: Preprocessed, test: Preprocessed) -> np.ndarray:
     return n_nom - matches
 
 
+def _relative_differences(train: Preprocessed, test: Preprocessed) -> np.ndarray:
+    """(n_test, n_train, n_num) terms |x - y| / (|x| + |y|) of the numeric attributes.
+
+    Equal to the slide's |x - y| / |x + y| for our non-negative, [0, 1]-scaled data. A 0/0
+    term (both values 0) counts as 0: equal values add no distance.
+    """
+    a = test.X_num[:, None, :]
+    b = train.X_num[None, :, :]
+    diff = np.abs(a - b)
+    denom = np.abs(a) + np.abs(b)
+    # Divide only where denom > 0; elsewhere the term stays 0 (and numpy gives no warning).
+    return np.divide(diff, denom, out=np.zeros_like(diff), where=denom > 0)
+
+
 def euclidean(train: Preprocessed, test: Preprocessed) -> np.ndarray:
     """Minkowski r=2 on the one-hot representation (all feature weights equal to 1)."""
     # Numeric part: exact squared differences, so equal rows give exactly 0 and ties stay ties.
@@ -48,7 +62,26 @@ def manhattan(train: Preprocessed, test: Preprocessed) -> np.ndarray:
     return numeric + 2.0 * mismatches
 
 
+def canberra(train: Preprocessed, test: Preprocessed) -> np.ndarray:
+    """Canberra distance (Wilson & Martinez, 1997) on the one-hot representation."""
+    numeric = _relative_differences(train, test).sum(axis=2)
+    # Each different nominal value flips two one-hot columns, |1 - 0| / (1 + 0) = 1 each.
+    return numeric + 2.0 * _nominal_mismatches(train, test)
+
+
+def clark(train: Preprocessed, test: Preprocessed) -> np.ndarray:
+    """Clark distance as written in the course slides (no square root) on the one-hot
+    representation. The usual definition takes the square root, which is monotonic, so the
+    k nearest neighbours are the same either way; only distance-weighted votes change.
+    """
+    numeric = (_relative_differences(train, test) ** 2).sum(axis=2)
+    # Each different nominal value flips two one-hot columns, (1 / 1)^2 = 1 each.
+    return numeric + 2.0 * _nominal_mismatches(train, test)
+
+
 DISTANCES: dict[str, DistanceFunction] = {
     "euclidean": euclidean,
     "manhattan": manhattan,
+    "canberra": canberra,
+    "clark": clark,
 }

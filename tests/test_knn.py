@@ -5,7 +5,7 @@ import pytest
 from sklearn.neighbors import KNeighborsClassifier
 
 import config
-from distances import DISTANCES, euclidean, manhattan
+from distances import DISTANCES, canberra, clark, euclidean, manhattan
 from experiment_runner import ClassificationResult
 from knn_base import Neighbor, kNNAlgorithm
 from models.knn import KNN, default_params
@@ -233,6 +233,90 @@ def test_manhattan_matches_direct_one_hot_computation(n_num):
 
 def test_manhattan_is_registered():
     assert DISTANCES["manhattan"] is manhattan
+
+
+def test_canberra_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # sum |x - y| / (|x| + |y|) over numeric values + 2 * (different nominal values).
+    expected = np.array(
+        [
+            [1.0, 0.05 / 0.15, 0.85 / 0.95 + 2, 0.95 / 1.05 + 2],
+            [3.0, 0.85 / 1.05 + 2, 0.05 / 1.85, 0.05 / 1.95],
+        ]
+    )
+    np.testing.assert_allclose(canberra(train, test), expected)
+
+
+def test_canberra_treats_zero_over_zero_as_zero():
+    # Both numeric values are 0 -> 0/0, which must count as 0 (no nan, no warning).
+    train = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    test = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    assert canberra(train, test)[0, 0] == 0.0
+
+
+def test_canberra_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(canberra(train, train)) == 0.0)
+
+
+@pytest.mark.parametrize("n_num", [0, 3])
+def test_canberra_matches_direct_one_hot_computation(n_num):
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"), ("x", "y", "z"))
+    train = make_preprocessed(
+        rng.random((8, n_num)), rng.integers(0, 3, size=(8, 2)), [0] * 8, nom_values
+    )
+    test = make_preprocessed(
+        rng.random((5, n_num)), rng.integers(0, 3, size=(5, 2)), [0] * 5, nom_values
+    )
+    a, b = test.to_onehot(), train.to_onehot()
+    direct = np.zeros((5, 8))
+    for i in range(5):
+        for j in range(8):
+            for x, y in zip(a[i], b[j], strict=True):
+                if x + y > 0:
+                    direct[i, j] += abs(x - y) / (abs(x) + abs(y))
+    np.testing.assert_allclose(canberra(train, test), direct, rtol=0, atol=1e-12)
+
+
+def test_canberra_is_registered():
+    assert DISTANCES["canberra"] is canberra
+
+
+def test_clark_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # sum (|x - y| / (|x| + |y|))^2 over numeric values + 2 * (different nominal values).
+    expected = np.array(
+        [
+            [1.0, (0.05 / 0.15) ** 2, (0.85 / 0.95) ** 2 + 2, (0.95 / 1.05) ** 2 + 2],
+            [3.0, (0.85 / 1.05) ** 2 + 2, (0.05 / 1.85) ** 2, (0.05 / 1.95) ** 2],
+        ]
+    )
+    np.testing.assert_allclose(clark(train, test), expected)
+
+
+def test_clark_treats_zero_over_zero_as_zero():
+    train = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    test = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    assert clark(train, test)[0, 0] == 0.0
+
+
+def test_clark_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(clark(train, train)) == 0.0)
+
+
+def test_clark_has_same_neighbour_order_as_its_square_root_version(small_fold):
+    # The square root is monotonic, so it cannot change which neighbours are nearest.
+    train, test = small_fold
+    d = clark(train, test)
+    np.testing.assert_array_equal(
+        np.argsort(d, axis=1, kind="stable"), np.argsort(np.sqrt(d), axis=1, kind="stable")
+    )
+
+
+def test_clark_is_registered():
+    assert DISTANCES["clark"] is clark
 
 
 # ---------------------------------------------------------------------------
