@@ -2,20 +2,22 @@
 
 from distances import DISTANCES
 from experiment_runner import ClassificationResult
-from knn_base import check_k, kNNAlgorithm
+from knn_base import check_k, run_kNN
 from models.classifier_base import BaseClassifier
 from preprocessing import Preprocessed
+from retention import RETENTION
 from voting import VOTING
 
 default_params = {
     "k": 3,
     "distance": "euclidean",
     "voting": "majority",
+    "retention": "never",
 }
 
 
 class KNN(BaseClassifier):
-    """Own kNN; distance and voting are selected by name from ``DISTANCES`` / ``VOTING``."""
+    """Own kNN; distance, voting and retention are selected by name from their registries."""
 
     def parse_params(self) -> None:
         """Validate and cast the CLI parameters, injecting the defaults."""
@@ -37,7 +39,11 @@ class KNN(BaseClassifier):
             self.params["k"] = default_params["k"]
 
         # 2. Strategies are selected by name, so params stay plain strings in the CSV
-        for param, registry in (("distance", DISTANCES), ("voting", VOTING)):
+        for param, registry in (
+            ("distance", DISTANCES),
+            ("voting", VOTING),
+            ("retention", RETENTION),
+        ):
             if param in self.params:
                 name = str(self.params[param]).lower()
                 if name not in registry:
@@ -66,17 +72,20 @@ class KNN(BaseClassifier):
         return train, test
 
     def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
-        """Predict with ``kNNAlgorithm``; it also checks that k does not exceed the train size."""
+        """Predict with the own kNN; storage is the case base size after the test phase."""
         train, test = self.prepare_data(train, test)
-        predictions = kNNAlgorithm(
+        retention = self.params["retention"]
+        run = run_kNN(
             train,
             test,
             self.params["k"],
             DISTANCES[self.params["distance"]],
             VOTING[self.params["voting"]],
+            # "never" uses the fast batch path (same predictions, see the tests).
+            None if retention == "never" else RETENTION[retention],
         )
 
         return ClassificationResult(
-            predictions=predictions,
-            storage=len(train.y),
+            predictions=run.predictions,
+            storage=run.case_base_size,
         )

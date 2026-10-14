@@ -500,3 +500,22 @@ def test_retention_registry():
         "always": always_retain,
         "different_class": different_class,
     }
+
+
+def test_parse_params_resolves_retention_case_insensitively():
+    assert KNN({"retention": "Always"}).params["retention"] == "always"
+
+
+def test_parse_params_rejects_unknown_retention():
+    with pytest.raises(ValueError, match="Invalid retention"):
+        KNN({"retention": "sometimes"})
+
+
+@pytest.mark.parametrize(
+    ("retention", "expected_storage"),
+    [("never", 4), ("always", 6)],  # small_fold: 4 train cases, 2 test cases
+)
+def test_fit_predict_storage_is_final_case_base_size(small_fold, retention, expected_storage):
+    train, test = small_fold
+    result = KNN({"k": 1, "retention": retention}).fit_predict(train, test)
+    assert result.storage == expected_storage

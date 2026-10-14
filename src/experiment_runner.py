@@ -87,8 +87,13 @@ def run_fold(
     if len(predictions) != len(test.y_codes):
         raise ValueError("Classifier returned a different number of predictions than test samples")
 
-    if result.storage < 0 or result.storage > len(train.y):
-        raise ValueError("Classifier storage must be between 0 and the number of training samples")
+    # Retention policies can store solved test cases too, so the case base can grow up to
+    # train + test (storage still cannot be negative or exceed every case seen).
+    max_storage = len(train.y) + len(test.y)
+    if result.storage < 0 or result.storage > max_storage:
+        raise ValueError(
+            "Classifier storage must be between 0 and the number of training plus test samples"
+        )
 
     n_correct = sum(
         prediction == int(expected)
