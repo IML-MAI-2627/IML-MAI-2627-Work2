@@ -135,9 +135,12 @@ def test_run_grid_search_skips_existing_files(mock_subprocess_run, tmp_path):
 
     tiny_grid = {"svm": {"C": [1.0, 2.0], "kernel": ["linear"]}}
 
+    # Create the nested directory structure used by the new run_grid_search
+    model_dir = tmp_path / "vowel" / "svm"
+    model_dir.mkdir(parents=True, exist_ok=True)
+
     # Create a fake CSV file simulating that combination 0 was already completed
-    # (Assuming the missing underscore bug in grid_search.py is fixed)
-    (tmp_path / "vowel_svm_C-1.0_kernel-linear.csv").touch()
+    (model_dir / "vowel_svm_C-1.0_kernel-linear.csv").touch()
 
     with patch.dict(grid_search.GRIDS, tiny_grid, clear=True):
         grid_search.run_grid_search(datasets=["vowel"], models=["svm"], out_dir=tmp_path)
@@ -152,23 +155,32 @@ def test_run_grid_search_skips_existing_files(mock_subprocess_run, tmp_path):
 def test_evaluate_results_extracts_best_models(tmp_path):
     """Creates fake CSVs and tests if evaluate_results computes the correct optimal params."""
 
-    # Create fake CSV results for two different configurations
     csv_header = "dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage\n"
 
-    # Config A: Average accuracy = 0.80
+    # Config A: Average accuracy = 0.81 (Vary slightly to avoid zero-variance warnings in scipy)
     csv_config_a = (
-        csv_header + "splice,0,svm,C=1.0;kernel=linear,0.80,80,20,0.1,100\n"
-        "splice,1,svm,C=1.0;kernel=linear,0.80,80,20,0.1,100\n"
+        csv_header
+        + "splice,0,Support Vector Machine,C=1.0;"
+        + "kernel=linear;class_weight=None,0.80,80,20,0.1,100\n"
+        + "splice,1,Support Vector Machine,C=1.0;kernel=linear;"
+        + "class_weight=None,0.83,83,17,0.1,100\n"
     )
 
-    # Config B: Average accuracy = 0.95 (This is the winner)
+    # Config B: Average accuracy = 0.96 (This is the winner)
     csv_config_b = (
-        csv_header + "splice,0,svm,C=10.0;kernel=rbf,0.95,95,5,0.2,100\n"
-        "splice,1,svm,C=10.0;kernel=rbf,0.95,95,5,0.2,100\n"
+        csv_header
+        + "splice,0,Support Vector Machine,C=10.0;"
+        + "kernel=rbf;class_weight=None,0.95,95,5,0.2,100\n"
+        + "splice,1,Support Vector Machine,C=10.0;"
+        + "kernel=rbf;class_weight=None,0.97,97,3,0.2,100\n"
     )
 
-    (tmp_path / "splice_svm_C-1.0_kernel-linear.csv").write_text(csv_config_a)
-    (tmp_path / "splice_svm_C-10.0_kernel-rbf.csv").write_text(csv_config_b)
+    # Create nested folder structure mimicking the rglob search
+    model_dir = tmp_path / "splice" / "svm"
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    (model_dir / "splice_svm_C-1.0_kernel-linear.csv").write_text(csv_config_a)
+    (model_dir / "splice_svm_C-10.0_kernel-rbf.csv").write_text(csv_config_b)
 
     # Run evaluation
     grid_search.evaluate_results(out_dir=tmp_path)
@@ -179,8 +191,94 @@ def test_evaluate_results_extracts_best_models(tmp_path):
 
     report_content = report_file.read_text()
 
-    # Ensure it correctly identified the highest accuracy and its corresponding params
-    assert "Best Accuracy:  0.9500" in report_content
-    assert "Optimal Params: C=10.0;kernel=rbf" in report_content
-    # Ensure the losing config is not listed as the winner
-    assert "C=1.0;kernel=linear" not in report_content
+    # Ensure it correctly identified the highest accuracy and its corresponding config string
+    assert "Mean Accuracy:        0.9600" in report_content
+    assert (
+        "Best Mean Accuracy Config: Support Vector Machine[C=10.0;kernel=rbf;class_weight=None]"
+        in report_content
+    )
+
+    # Ensure the losing config is not listed as the overall absolute best
+    assert (
+        "Best Mean Accuracy Config: Support Vector Machine[C=1.0;kernel=linear;class_weight=None]"
+        not in report_content
+    )
+
+
+@patch(
+    "grid_search.stats.plot_cd_diagram"
+)  # Completely mock the plot so we don't open image windows
+@patch("grid_search.stats.nemenyi_test", wraps=grid_search.stats.nemenyi_test)
+@patch("grid_search.stats.friedman_test", wraps=grid_search.stats.friedman_test)
+@patch("grid_search.stats.compare_two", wraps=grid_search.stats.compare_two)
+def test_evaluate_results_triggers_all_statistical_tests(
+    mock_compare_two, mock_friedman, mock_nemenyi, mock_plot_cd, tmp_path
+):
+    """
+    Simulates CSVs to ensure evaluate_results correctly routes data to:
+    1. Friedman + Nemenyi (Intra-model for SVM with k=3 champions)
+    2. Wilcoxon (Cross-model for Best SVM vs Best RF)
+    """
+    csv_header = "dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage\n"
+
+    def make_csv(model, params, base_acc):
+        # Adds slight deterministic noise so variance isn't exactly 0
+        return "".join(
+            f"splice,{i},{model},{params},{base_acc + (i % 3) * 0.01 * base_acc:.3f},10,0,0.1,100\n"
+            for i in range(10)
+        )
+
+    # 3 SVM Champions (Different kernels ensure they are treated as 3 separate champions)
+    # This will trigger the k>=3 branch -> Friedman -> Nemenyi
+    csv_svm_1 = csv_header + make_csv(
+        "Support Vector Machine", "C=1.0;kernel=linear;class_weight=None", 0.70
+    )
+    csv_svm_2 = csv_header + make_csv(
+        "Support Vector Machine", "C=1.0;kernel=rbf;class_weight=None", 0.95
+    )  # Winner
+    csv_svm_3 = csv_header + make_csv(
+        "Support Vector Machine", "C=1.0;kernel=poly;class_weight=None", 0.85
+    )
+
+    # 1 RF Champion
+    # This will trigger the k=1 branch (No intra-model stats)
+    csv_rf_1 = csv_header + make_csv("Random Forest", "criterion=gini;max_features=sqrt", 0.90)
+
+    # Write files to their nested directories
+    svm_dir = tmp_path / "splice" / "svm"
+    svm_dir.mkdir(parents=True, exist_ok=True)
+    (svm_dir / "1.csv").write_text(csv_svm_1)
+    (svm_dir / "2.csv").write_text(csv_svm_2)
+    (svm_dir / "3.csv").write_text(csv_svm_3)
+
+    rf_dir = tmp_path / "splice" / "rf"
+    rf_dir.mkdir(parents=True, exist_ok=True)
+    (rf_dir / "1.csv").write_text(csv_rf_1)
+
+    # Execute evaluation
+    grid_search.evaluate_results(out_dir=tmp_path)
+
+    # ASSERTIONS: Check the correct mathematical routing
+
+    # 1. Intra-model: SVM has 3 champions, so Friedman & Nemenyi MUST be called once
+    assert mock_friedman.call_count == 1
+    assert mock_nemenyi.call_count == 1
+    assert mock_plot_cd.call_count == 1  # Ensures diagram generation was triggered
+
+    # 2. Cross-model: Best SVM vs Best RF -> Wilcoxon MUST be called once
+    assert mock_compare_two.call_count == 1
+
+    # 3. Verify Wilcoxon received the exact correct champions
+    wilcoxon_args = mock_compare_two.call_args[0]
+    # Args are (table, config1, config2)
+    config1, config2 = wilcoxon_args[1], wilcoxon_args[2]
+
+    assert "Support Vector Machine[C=1.0;kernel=rbf;class_weight=None]" in [config1, config2]
+    assert "Random Forest[criterion=gini;max_features=sqrt]" in [config1, config2]
+
+    # 4. Verify the report generated the correct text blocks
+    report_content = (tmp_path / "optimal_results.txt").read_text()
+    assert "Friedman p-value:" in report_content
+    assert "Running Nemenyi..." in report_content
+    assert "CROSS-MODEL HEAD-TO-HEAD: SPLICE" in report_content
+    assert "Wilcoxon p-value:" in report_content
