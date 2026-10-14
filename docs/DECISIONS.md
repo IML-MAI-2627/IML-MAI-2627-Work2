@@ -19,7 +19,6 @@ Status: **decided** / **pending**.
 
 ### Numeric attributes
 
-
 - **Min-max scaling to [0,1]** with the train min/max: `x' = (x - min) / (max - min)`.
     - *Why:* required by the assignment; also keeps all attributes on a comparable scale so no
       attribute dominates the distance. (decided)
@@ -38,7 +37,6 @@ Status: **decided** / **pending**.
 
 ### Nominal attributes
 
-
 - **Integer codes, ONE column per attribute** (`X_nom`), for the kNN.
     - *Why:* HEOM compares nominal values by equality (0 if equal, 1 if different), so a single
       column of labels is enough. The numbers are labels, not an order. (decided)
@@ -54,7 +52,6 @@ Status: **decided** / **pending**.
 - **Ambiguous nucleotide codes in splice (D, N, S, R) are valid values, not missing values.** (note)
 
 ### Missing values
-
 
 - **Numeric: train mean. Nominal: train mode.** Statistics ignore the missing cells.
     - *Why:* simple, deterministic, computed on train only. (decided)
@@ -79,7 +76,6 @@ Status: **decided** / **pending**.
 
 ### Class
 
-
 - `y` is kept unchanged; `y_codes` gives the integer version (position in the header `class_values`).
 - The class is never part of `X_num` / `X_nom`, so it cannot leak into the distance. (decided)
 - **Rows with an unknown class (`?`) are removed with a warning** that reports how many. *Why:* they cannot be learned
@@ -87,7 +83,6 @@ Status: **decided** / **pending**.
   evaluated on fewer cases. splice and vowel have none. (decided)
 
 ### Dropped columns (vowel)
-
 
 - **`Train_or_Test` is dropped.** It only records which half of the original UCI split a row came
   from; it does not describe the sound and is unrelated to our 10 folds. (decided)
@@ -100,7 +95,6 @@ Status: **decided** / **pending**.
   Report it in the analysis. (pending)
 
 ### How the preprocessing was checked
-
 
 - Unit tests (synthetic, run in CI): scaling, clipping, constant column, imputation with train
   stats, statistics ignore missing cells, codes, one-hot shape, class unchanged, drop.
@@ -117,7 +111,6 @@ Status: **decided** / **pending**.
   cases the only differences were the two intended ones (mode ties, empty nominal column).
 
 ### Observations for the analysis / report
-
 
 - **vowel has a ceiling effect.** 1-NN already reaches ~98.9%. Likely reason: the dataset has
   15 speakers x 11 vowels x 6 repetitions, and the random stratified folds put repetitions of the
@@ -214,64 +207,65 @@ Status: **decided** / **pending**.
     - *Why:* the seed reset in `run_experiment` only reaches models that use numpy's global random state; an explicit
       `random_state` is reproducible regardless. (decided)
 
-
 ---
 
 ## Statistical analysis (issue #14, `src/stats.py`)
 
 ### Framework
 
-- **We follow Demšar (2006)**, the mandatory reading of the assignment: Wilcoxon signed-ranks
-  for two configurations; Friedman plus a post-hoc test for more; CD diagrams to present them. *Why:* the assignment
-  asks for "a T-Test or another statistical method [2]", and the course
-  slides summarise Demšar's recommendations. (decided)
-- **Blocks are the 10 folds of one dataset; each dataset is analysed separately.**
-  *Why:* Demšar's blocks are different datasets, but we only have two. *Limitation:* folds are
-  not independent (their training sets overlap). Demšar (Section 3.2.3) notes that no test
-  accounts for this, so the report must mention it. (decided / limitation)
+- **We follow Demšar (2006)**, the mandatory reading of the assignment: Wilcoxon signed-ranks for two configurations;
+  Friedman plus a post-hoc test for more; CD diagrams to present them.
+    - *Why:* The assignment explicitly asks for "a T-Test or another statistical method [2]", and the course slides
+      summarize Demšar's recommendations. (decided)
+- **Datasets are evaluated completely independently.** We do not average or aggregate scores across the two datasets.
+    - *Why:* The assignment explicitly asks to determine the best parameters and algorithms "at each dataset." (decided)
+- **Blocks are the 10 folds of one dataset.** The Friedman test is applied to a $10 \times k$ table where the 10 folds
+  act as the datasets/blocks, and the $k$ extracted Champions act as the algorithms.
+    - *Why:* Demšar's tests assume blocks are different independent datasets, but the assignment only provides two
+      datasets and requires computing performance over the 10-fold cross-validation sets. Treating the 10 folds as
+      blocks ($N=10$) is the standard academic adaptation to fulfill the assignment requirements.
+    - *Limitation:* Folds are not perfectly independent (their training sets overlap). Demšar (Section 3.2.3) notes that
+      no test natively accounts for this overlapping dependency, which stands as a known theoretical limitation of this
+      approach. (decided / limitation)
 - **Significance level alpha = 0.05** for every test unless stated otherwise. (decided)
 
-### Score table and ranks
-
-- **Input is a folds x configurations table** (`score_table`): one metric, one dataset, one column
-  per `model[params]`. A configuration missing a fold, or with a duplicated fold, raises
-  `ValueError`. *Why:* all tests are paired fold by fold (Demšar, Section 1). (decided)
-- **Direction per metric:** accuracy, higher is better; time and storage, lower is better. (decided)
-- **Ranks:** 1 = best inside each fold, ties get the average rank (Demšar, Section 3.2.2). (decided)
-
-### Two configurations
-
-- **Wilcoxon signed-ranks decides; the paired t-test is reported only as a reference.**
-  *Why:* Demšar (Section 3.1.2) shows the t-test needs normal differences with fewer than ~30
-  blocks; the assignment mentions the t-test, so we still report it. (decided)
-- **Zeros follow Demšar's rule** (split evenly between R+ and R-, one ignored if their number is
-  odd) and the **p-value is exact** (all sign patterns). *Why:* `scipy.stats.wilcoxon` handles
-  zeros differently and switches to a normal approximation with ties or zeros. (decided)
-
-### Three or more configurations
+### Three or more configurations (Multiple Hypothesis Testing)
 
 - **Friedman is computed with Demšar's formula, and the decision uses the Iman-Davenport F_F.**
-  *Why:* `scipy.stats.friedmanchisquare` applies a tie correction the paper does not use; the
-  chi-square approximation is conservative and needs N > 10 and k > 5, while we have N = 10 (Demšar, Section 3.2.2).
-  (decided)
+    - *Why:* `scipy.stats.friedmanchisquare` applies a tie correction the paper does not use; the chi-square
+      approximation is conservative and needs N > 10 and k > 5, while we have N = 10 (Demšar, Section 3.2.2). (decided)
 - **Post-hoc only after a significant Friedman test:**
-    - **Nemenyi** for all-against-all comparisons;
-    - **Bonferroni-Dunn** when there is a control (e.g. kNN without reduction vs the reduction
-      techniques). It is more powerful because it makes k - 1 comparisons instead of
-      k (k - 1)/2 (Demšar, p. 12). (decided)
-- **Critical values are computed, not copied:** Nemenyi q = studentized range / sqrt (2) with
-  infinite degrees of freedom; Bonferroni-Dunn q = z_{1 - alpha / (2 (k - 1))}. Both reproduce
-  Demšar's Table 5 and also work for k > 10. Table 5 (b) prints 2.724 for k = 9, alpha = 0.05; the
-  formula and the neighbouring entries give 2.734, so we treat it as a typo. (decided)
-- **kNN grid (k = 96 configurations):** with N = 10 the Nemenyi CD is very large, so almost no
-  pair can differ. Proposal: Friedman on the whole grid, then the post-hoc on a reasoned subset (e.g. the best
-  configuration per factor). (pending)
+    - **Nemenyi** is used for all-against-all comparisons. We apply this to our elite subset of 4 (RF) or 6 (SVM)
+      Champions.
+        - *Why we test a subset and not the whole grid:* Demšar's Nemenyi test controls the family-wise error rate
+          across $k (k-1)/2$ comparisons. If we tested all 168 SVM configurations simultaneously ($k=168$), the test
+          would make ~14,000 comparisons. This triggers the **Nemenyi Power Loss**, pushing the Critical Difference (CD)
+          so high that the test fails to separate any models. Testing only the 6 core Champions ensures the CD remains
+          tightly scoped and mathematically powerful. (decided)
+    - **Bonferroni-Dunn** is used when there is a control (e.g., comparing the baseline "Best kNN" without reduction
+      against the reduction techniques). It is more powerful because it makes $k - 1$ comparisons instead
+      of $k (k - 1)/2$ (Demšar, p. 12). (decided)
+- **Critical values are computed, not copied:** Nemenyi q = studentized range / sqrt (2) with infinite degrees of
+  freedom; Bonferroni-Dunn q = z_{1 - alpha / (2 (k - 1))}. Both reproduce Demšar's Table 5 and also work for k > 10.
+  Table 5 (b) prints 2.724 for k = 9, alpha = 0.05; the formula and the neighbouring entries give 2.734, so we treat it
+  as a typo. (decided)
+
+### Two configurations (Pairwise testing)
+
+- **Wilcoxon signed-ranks decides; the paired t-test is reported only as a reference.**
+    - *Why:* Demšar (Section 3.1.2) shows the t-test needs normal differences and is statistically unsafe with fewer
+      than ~30 blocks. Wilcoxon is the recommended non-parametric alternative. We use this strictly for head-to-head
+      comparisons (e.g., Best overall RF vs Best overall SVM). (decided)
+- **Zeros follow Demšar's rule** (split evenly between R+ and R-, one ignored if their number is odd) and the **p-value
+  is exact** (all sign patterns).
+    - *Why:* `scipy.stats.wilcoxon` handles zeros differently and switches to a normal approximation with ties or zeros,
+      diverging from Demšar's exact method. (decided)
 
 ### Presentation
 
-- **CD diagrams follow Demšar's Figure 1:** best rank on the right; Nemenyi groups joined by a
-  thick line; for Bonferroni-Dunn, the interval of one CD around the control, drawn exactly (no padding) because its
-  limits decide significance. The control label is bold. (decided)
+- **CD diagrams follow Demšar's Figure 1:** best rank on the right; Nemenyi groups joined by a thick line; for
+  Bonferroni-Dunn, the interval of one CD around the control is drawn exactly (no padding) because its limits decide
+  significance. (decided)
 
 ### How the module was checked
 
@@ -504,17 +498,62 @@ Status: **decided** / **pending**.
       computation time and keeping the output logs clean of duplicate configurations. (decided)
 - **Resilience and Checkpointing.** Each configuration is saved as an individual CSV. The script checks if a
   configuration file already exists before running it.
-    - *Why:* If the intensive Grid Search process is interrupted (e.g., SSH disconnection or crash), it can resume
-      exactly where it left off without re-computing past folds. (decided)
+    - *Why:* If the intensive Grid Search process is interrupted, it can resume exactly where it left off without
+      re-computing past folds. (decided)
+
+### Champion Extraction and P-Hacking Avoidance
+
+- **Configurations are grouped into fundamental "families" before statistical testing.** Instead of comparing all 168
+  SVM or 96 RF configurations simultaneously, we define architectural families and extract only the absolute best
+  configuration (the "Champion") from each family.
+    - **Random Forest (4 Champions):** Grouped by `criterion` (gini/entropy) and `max_features` (sqrt/None). *Why:*
+      These parameters fundamentally alter the geometry and split logic of the trees. The rest (`n_estimators`,
+      `max_depth`...) are treated as internal variance stabilizers.
+    - **Support Vector Machine (6 Champions):** Grouped by `kernel` (linear/rbf/poly) and `class_weight`
+      (None/balanced). *Why:* `kernel` fundamentally alters the mathematical mapping space, and `class_weight`
+      completely alters the loss function. The rest (`C`, `gamma`...) are internal regularizers. (decided)
+- **Champions are extracted using raw Mean Accuracy across the 10 folds.**
+    - *Why:* **To strictly avoid p-hacking (double-dipping).** Statistical tests mathematically assume that the
+      hypotheses are formulated *a priori*. If we used a statistical test to filter out bad models, and then ran another
+      statistical test on the survivors, the family-wise error calculation would be completely invalidated. Selecting
+      champions based purely on arithmetic mean guarantees the mathematical purity of the subsequent inferential
+      statistics. (decided)
+    -
+
+### Cross-Model Comparison (The Inter-Model Tournament)
+
+- **Direct Wilcoxon head-to-head for absolute bests.** The absolute #1 RF and absolute #1 SVM can be compared directly
+  using the Wilcoxon signed-ranks test.
+    - *Why:* When isolating exactly two models, Wilcoxon is the most powerful and appropriate non-parametric test.
+      (decided)
+
+### Why datasets are NEVER merged for statistical testing
+
+- **Splice and Vowel folds are never concatenated into an $N=20$ block table.** All statistical tests are strictly
+  scoped to $N=10$ blocks of a single dataset.
+    - *Why (Assignment Rules):* The guidelines explicitly require hyperparameter and algorithm evaluation "at each
+      dataset" (e.g., "Which is the best kernel for the SVM at each dataset?").
+    - *Why (Statistical Purity):* Demšar explicitly warns that error rates across unrelated domains are incommensurable.
+      The Friedman test assumes blocks (rows) are exchangeable repetitions. Ten folds from a continuous, 11-class
+      acoustic problem (Vowel) and ten folds from a categorical, imbalanced genomic problem (Splice) share entirely
+      different error variances. Merging them violates the foundational assumptions of the test.
+    - *Why (Sample Size):* Demšar's true cross-dataset methodology requires treating each dataset as a single block.
+      With only 2 datasets available, $N=2$ is mathematically too small to run Wilcoxon or Friedman (which require at
+      least $N=5$ or $N=6$ just to reach a theoretical $p < 0.05$). (decided)
 
 ### Known Limitations regarding Evaluation
 
 - **Optimization Bias (Hyperparameter Leakage).** Because we are running our Grid Search across the 10 predefined test
   folds and selecting the hyperparameters that yield the highest mean accuracy, the test sets are effectively acting as
   validation sets.
-    - *Consequence:* This introduces a slight optimization bias. The reported maximum accuracies (e.g., 96.90% on
-      Splice, 99.09% on Vowel) represent an optimistic upper bound rather than completely unseen generalizability. This
-      is only a template for the later statistical analyses.
+    - *Consequence:* This introduces a slight optimization bias. The reported maximum accuracies represent an optimistic
+      upper bound rather than completely unseen generalizability. Since the assignment forbids re-splitting or modifying
+      the provided 10 folds, this bias is an unavoidable constraint of the experimental design. (limitation)
+- **Double Dipping**: When applying the Wilcoxon test upon the top models extracted with the Nemenyi test, we are
+  actually performing p-hacking. It cannot be avoided as we cannot divide the dataset into train-val-test and we are
+  forced to do it this way.
+
+---
 
 ## Methods and libraries used
 
@@ -544,6 +583,7 @@ Status: **decided** / **pending**.
 | kNN distances                        | Euclidean on the one-hot representation (registry `DISTANCES`)                                                      | Own code + `numpy`                                                                               | `src/distances.py`                    |
 | kNN voting                           | Majority, tie goes to the nearest tied neighbour (registry `VOTING`)                                                | Own code (`collections.Counter`)                                                                 | `src/voting.py`                       |
 | Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `src/experiments/grid_search.py`      |
+| Grid Search                          | Extracting optimal models using grid_search and applying the statistical tests                                      | Own code                                                                                         | `src/experiments/grid_search.py`      |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |
 | EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                                    | `experiments/eda.py`                  |
 | EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                                         | `experiments/eda.py`                  |
@@ -551,7 +591,6 @@ Status: **decided** / **pending**.
 | CD diagram                           | Demšar (2006), Figure 1                                                                                             | `matplotlib`                                                                                     | `src/stats.py`                        |
 
 Not used (on purpose):
-
 
 - **scikit-learn in the kNN or in the instance reduction.** Both must be our own code.
 - **`sklearn.preprocessing.OneHotEncoder`.** The one-hot is built with `np.eye` from the integer
@@ -568,6 +607,7 @@ Not used (on purpose):
   ties and zeros differently from Demšar (2006); `wilcoxon` is only used in a test as a check.
 - **`scikit-posthocs`.** Not in the allowed packages; Nemenyi, Bonferroni-Dunn and the CD
   diagram are a few lines of our own code.
+
 ---
 
 ## Pending decisions

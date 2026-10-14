@@ -1,0 +1,76 @@
+OPTIMAL HYPERPARAMETERS & STATISTICAL ANALYSIS
+==============================================
+
+Dataset: VOWEL | Model: RANDOM FOREST
+  Best Mean Accuracy Config: Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=1;n_estimators=200;n_jobs=-1;random_state=42]
+  Mean Accuracy:        0.9798
+  Mean Time/Fold:       0.1839 seconds
+  Total Configs Tested: 96
+  Champions Extracted:  4 (Used for Statistical Testing)
+  Friedman p-value:     2.7411e-10
+  -> Significant differences found among champions. Running Nemenyi...
+  -> CD Diagram saved to: cd_diagram_vowel_rf_champions.png
+  Statistically Top Group (Equivalent to Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=1;n_estimators=200;n_jobs=-1;random_state=42]):
+    * Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=1;n_estimators=200;n_jobs=-1;random_state=42] (Mean Rank: 1.30)
+    * Random Forest[criterion=gini;max_depth=None;max_features=sqrt;min_samples_leaf=1;n_estimators=300;n_jobs=-1;random_state=42] (Mean Rank: 1.75)
+--------------------------------------------------------------------------------
+
+Dataset: VOWEL | Model: SUPPORT VECTOR MACHINE
+  Best Mean Accuracy Config: Support Vector Machine[C=3.0;class_weight=None;coef0=-0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]
+  Mean Accuracy:        0.9909
+  Mean Time/Fold:       0.0092 seconds
+  Total Configs Tested: 168
+  Champions Extracted:  6 (Used for Statistical Testing)
+  Friedman p-value:     1.3064e-10
+  -> Significant differences found among champions. Running Nemenyi...
+  -> CD Diagram saved to: cd_diagram_vowel_svm_champions.png
+  Statistically Top Group (Equivalent to Support Vector Machine[C=3.0;class_weight=None;coef0=-0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]):
+    * Support Vector Machine[C=3.0;class_weight=None;coef0=-0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 2.30)
+    * Support Vector Machine[C=3.0;class_weight=balanced;coef0=-0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 2.30)
+    * Support Vector Machine[C=10.0;class_weight=None;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 2.70)
+    * Support Vector Machine[C=10.0;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 2.70)
+--------------------------------------------------------------------------------
+
+CROSS-MODEL HEAD-TO-HEAD: VOWEL
+  Model 1: Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=1;n_estimators=200;n_jobs=-1;random_state=42]
+  Model 2: Support Vector Machine[C=3.0;class_weight=None;coef0=-0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]
+  Wilcoxon p-value:     1.5625e-02
+  -> Significant difference. Winner: Support Vector Machine[C=3.0;class_weight=None;coef0=-0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]
+================================================================================
+
+Dataset: SPLICE | Model: RANDOM FOREST
+  Best Mean Accuracy Config: Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=2;n_estimators=200;n_jobs=-1;random_state=42]
+  Mean Accuracy:        0.9690
+  Mean Time/Fold:       0.2239 seconds
+  Total Configs Tested: 96
+  Champions Extracted:  4 (Used for Statistical Testing)
+  Friedman p-value:     1.2294e-04
+  -> Significant differences found among champions. Running Nemenyi...
+  -> CD Diagram saved to: cd_diagram_splice_rf_champions.png
+  Statistically Top Group (Equivalent to Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=2;n_estimators=200;n_jobs=-1;random_state=42]):
+    * Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=2;n_estimators=200;n_jobs=-1;random_state=42] (Mean Rank: 1.50)
+    * Random Forest[criterion=gini;max_depth=20;max_features=sqrt;min_samples_leaf=1;n_estimators=300;n_jobs=-1;random_state=42] (Mean Rank: 1.90)
+--------------------------------------------------------------------------------
+
+Dataset: SPLICE | Model: SUPPORT VECTOR MACHINE
+  Best Mean Accuracy Config: Support Vector Machine[C=0.1;class_weight=balanced;coef0=0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]
+  Mean Accuracy:        0.9690
+  Mean Time/Fold:       0.6247 seconds
+  Total Configs Tested: 168
+  Champions Extracted:  6 (Used for Statistical Testing)
+  Friedman p-value:     2.5704e-12
+  -> Significant differences found among champions. Running Nemenyi...
+  -> CD Diagram saved to: cd_diagram_splice_svm_champions.png
+  Statistically Top Group (Equivalent to Support Vector Machine[C=0.1;class_weight=None;coef0=0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]):
+    * Support Vector Machine[C=0.1;class_weight=None;coef0=0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 1.90)
+    * Support Vector Machine[C=0.1;class_weight=balanced;coef0=0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 1.95)
+    * Support Vector Machine[C=1.0;class_weight=None;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 2.95)
+    * Support Vector Machine[C=3.0;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 3.30)
+--------------------------------------------------------------------------------
+
+CROSS-MODEL HEAD-TO-HEAD: SPLICE
+  Model 1: Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=2;n_estimators=200;n_jobs=-1;random_state=42]
+  Model 2: Support Vector Machine[C=0.1;class_weight=None;coef0=0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]
+  Wilcoxon p-value:     9.6094e-01
+  -> No significant difference between the absolute best models.
+================================================================================

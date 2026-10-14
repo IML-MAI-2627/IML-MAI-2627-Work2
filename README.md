@@ -212,18 +212,48 @@ Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vo
 `all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
 changes the output folder.
 
-## Grid Search for Random Forest and Support Vector Machine classifiers
+## Hyperparameter Tuning (Grid Search)
 
-Extracts the approximated optimal hyperparameters for each model and each dataset performing GridSearch.
+Extracts the approximated optimal hyperparameters for each model and each dataset performing a Grid Search and
+statistical tests.
 Run from the project root:
 
 ```bash
-python experiments/grid_search.py --dataset all --classifier all --out .
+python experiments/grid_search.py --dataset all --classifier all --out results/gridsearch
 ```
 
-Output goes to `results/gridsearch/` (not committed). `--dataset` accepts `splice`, `vowel` or
-`all`; `--classifier` accepts `rf`, `svm`, or `all`;`--out`
-changes the output folder.
+Output goes to `results/gridsearch/` (not committed). `--dataset` accepts `splice`, `vowel` or `all`; `--classifier`
+accepts `rf`, `svm`, or `all`; `--out` changes the output folder.
+
+The output is organized as a nested directory structure to keep thousands of configurations perfectly categorized:
+
+```text
+results/gridsearch/
+├── optimal_results.txt                     # Master summary report with stats and best configs
+├── splice/                                 # Results specific to the Splice dataset
+│   ├── rf/                                 # Random Forest configurations
+│   │   ├── cd_diagram_splice_rf_champions.png  # Intra-model CD diagram
+│   │   ├── splice_rf_criterion-gini...csv      # Fold-by-fold results for a specific config
+│   │   └── ... (96 CSV files)
+│   └── svm/                                # Support Vector Machine configurations
+│       ├── cd_diagram_splice_svm_champions.png
+│       ├── splice_svm_C-1.0_kernel-rbf...csv
+│       └── ... (168 CSV files)
+└── vowel/                                  # Results specific to the Vowel dataset
+    ├── rf/
+    └── svm/
+```
+
+### Generated Artifacts
+
+* **`optimal_results.txt`**: The definitive human-readable report. It details the absolute best configuration for each
+  model and dataset, lists the statistically equivalent top models (Nemenyi post-hoc test), and displays the results of
+  the Head-to-Head Wilcoxon signed-ranks test between the absolute best RF and the absolute best SVM.
+* **`cd_diagram_*.png`**: Critical Difference diagrams following Demšar (2006). These visually group statistically tied
+  configurations within a model family using a thick black line, separating the true winners from the rest.
+* **`*.csv` Files**: Each evaluated configuration saves its 10-fold results to its own CSV file. This enables aggressive
+  checkpointing: if the script is interrupted, it will instantly resume where it left off without re-running completed
+  configurations.
 
 ## Layout
 
