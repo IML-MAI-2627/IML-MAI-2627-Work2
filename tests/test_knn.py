@@ -5,7 +5,7 @@ import pytest
 from sklearn.neighbors import KNeighborsClassifier
 
 import config
-from distances import DISTANCES, euclidean
+from distances import DISTANCES, euclidean, manhattan
 from experiment_runner import ClassificationResult
 from knn_base import Neighbor, kNNAlgorithm
 from models.knn import KNN, default_params
@@ -196,6 +196,43 @@ def test_euclidean_matches_direct_one_hot_computation(n_num):
         ((test.to_onehot()[:, None, :] - train.to_onehot()[None, :, :]) ** 2).sum(axis=2)
     )
     np.testing.assert_allclose(euclidean(train, test), direct, rtol=0, atol=1e-12)
+
+
+def test_manhattan_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # |numeric difference| + 2 * (different nominal values), see the table in the PR.
+    expected = np.array(
+        [
+            [0.05, 0.05, 2.85, 2.95],
+            [2.95, 2.85, 0.05, 0.05],
+        ]
+    )
+    np.testing.assert_allclose(manhattan(train, test), expected)
+
+
+def test_manhattan_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(manhattan(train, train)) == 0.0)
+
+
+@pytest.mark.parametrize("n_num", [0, 3])
+def test_manhattan_matches_direct_one_hot_computation(n_num):
+    # Sum of |differences| over the full one-hot vectors, computed the slow, obvious way.
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"), ("x", "y", "z"))
+    train = make_preprocessed(
+        rng.random((8, n_num)), rng.integers(0, 3, size=(8, 2)), [0] * 8, nom_values
+    )
+    test = make_preprocessed(
+        rng.random((5, n_num)), rng.integers(0, 3, size=(5, 2)), [0] * 5, nom_values
+    )
+    a, b = test.to_onehot(), train.to_onehot()
+    direct = np.abs(a[:, None, :] - b[None, :, :]).sum(axis=2)
+    np.testing.assert_allclose(manhattan(train, test), direct, rtol=0, atol=1e-12)
+
+
+def test_manhattan_is_registered():
+    assert DISTANCES["manhattan"] is manhattan
 
 
 # ---------------------------------------------------------------------------
