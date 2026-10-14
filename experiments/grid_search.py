@@ -10,6 +10,8 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+import stats  # noqa: E402
+
 # ---------------------------------------------------------
 # 1. Configuration & Hyperparameter Grids
 # ---------------------------------------------------------
@@ -106,7 +108,7 @@ def run_grid_search(datasets: list[str], models: list[str], out_dir: Path):
                     params_str = "default"  # If empty dictionary
 
                 # 2. Final path
-                out_file = out_dir / f"{dataset}_{model}_{params_str}.csv"
+                out_file = out_dir / dataset / model / f"{dataset}_{model}_{params_str}.csv"
 
                 if out_file.exists():
                     continue
@@ -154,12 +156,42 @@ def run_grid_search(datasets: list[str], models: list[str], out_dir: Path):
 
 
 # ---------------------------------------------------------
-# 4. Evaluation Phase
+# 4. Evaluation Phase (Statistical Analysis)
 # ---------------------------------------------------------
-def evaluate_results(out_dir: Path):
-    print("--- Evaluating Grid Search Results ---")
 
-    csv_files = list(out_dir.glob("*.csv"))
+# Keys of the model need to be the same as inside the model columns in the csv
+TOP_COMBINATIONS = {
+    "rf": {
+        "criterion": ["gini", "entropy"],
+        "max_features": ["sqrt", "None"],
+    },
+    "svm": {
+        "kernel": ["linear", "rbf", "poly"],
+        "class_weight": ["None", "balanced"],
+    },
+}
+
+MODEL_NAMING = {
+    "Random Forest": "rf",
+    "Support Vector Machine": "svm",
+}
+
+
+def parse_params_str(p_str: str) -> dict:
+    """Safely converts a parameter string like 'C=1.0;kernel=linear' back into a dictionary."""
+    if pd.isna(p_str) or not p_str:
+        return {}
+    try:
+        return dict(kv.split("=", 1) for kv in str(p_str).split(";"))
+    except ValueError:
+        return {}
+
+
+def evaluate_results(out_dir: Path):
+    print("--- Evaluating Grid Search Results with Statistical Tests ---")
+
+    csv_files = list(out_dir.rglob("*.csv"))
+
     if not csv_files:
         print("No CSV files found in the output directory.")
         return
@@ -192,41 +224,149 @@ def evaluate_results(out_dir: Path):
 
     full_df = pd.concat(df_list, ignore_index=True)
 
-    aggregated = (
-        full_df.groupby(["dataset", "model", "params"])
-        .agg(mean_accuracy=("accuracy", "mean"), mean_time=("time", "mean"))
-        .reset_index()
-    )
-
     report_file = out_dir / "optimal_results.txt"
-
-    print("\nOPTIMAL HYPERPARAMETERS FOUND\n")
+    print("\nGENERATING OPTIMAL HYPERPARAMETERS AND CD DIAGRAMS\n")
 
     with open(report_file, "w") as f:
-        f.write("OPTIMAL HYPERPARAMETERS FOUND\n")
-        f.write("=======================================\n\n")
+        f.write("OPTIMAL HYPERPARAMETERS & STATISTICAL ANALYSIS\n")
+        f.write("==============================================\n\n")
 
+        # Evaluate per dataset and per model
         for dataset in full_df["dataset"].unique():
             for model in full_df["model"].unique():
-                subset = aggregated[
-                    (aggregated["dataset"] == dataset) & (aggregated["model"] == model)
-                ]
+                # Filter specific dataset and model
+                subset = full_df[
+                    (full_df["dataset"] == dataset) & (full_df["model"] == model)
+                ].copy()
+
                 if subset.empty:
                     continue
 
-                subset = subset.sort_values(by="mean_accuracy", ascending=False)
-                best_row = subset.iloc[0]
+                print(f"  -> Analyzing {model.upper()} on {dataset.upper()}...")
 
+                # Assign standard config names for easy grouping
+                subset["config"] = [
+                    stats.config_name(m, p)
+                    for m, p in zip(subset["model"], subset["params"], strict=False)
+                ]
+
+                # Convert to Fold x Configs table
+                try:
+                    table = stats.score_table(subset, dataset=dataset, metric="accuracy")
+                except ValueError as e:
+                    msg = f"Skipping {model.upper()} on {dataset.upper()}: {e}\n"
+                    print(f"    [!] {msg}")
+                    f.write(msg + "-" * 80 + "\n\n")
+                    continue
+
+                # 1. Calculate Absolute Mean Accuracies for all configs
+                mean_accs = table.mean().sort_values(ascending=False)
+                mean_times = subset.groupby("config")["time"].mean()
+
+                best_absolute_config = mean_accs.index[0]
+                best_acc = mean_accs.iloc[0]
+                best_time = mean_times[best_absolute_config]
+
+                # 2. Extract the Champions based on TOP_COMBINATIONS
+                champion_configs = []
+                if MODEL_NAMING[model] in TOP_COMBINATIONS:
+                    grid = TOP_COMBINATIONS[MODEL_NAMING[model]]
+                    keys = grid.keys()
+
+                    # Iterate over every defining target combination (e.g., linear+balanced)
+                    for instance in itertools.product(*grid.values()):
+                        target_comb = dict(zip(keys, instance, strict=False))
+
+                        # Find all configs that match this specific combination
+                        matching_configs = []
+                        for conf in mean_accs.index:
+                            p_str = subset.loc[subset["config"] == conf, "params"].iloc[0]
+                            p_dict = parse_params_str(p_str)
+
+                            # Check if the config satisfies the target combination
+                            if all(p_dict.get(k) == str(v) for k, v in target_comb.items()):
+                                matching_configs.append(conf)
+
+                        # Since mean_accs is already sorted descending, the first match is the best!
+                        if matching_configs:
+                            champion_configs.append(matching_configs[0])
+                else:
+                    # Fallback: just take the top 5 absolute best if model not in TOP_COMBINATIONS
+                    champion_configs = mean_accs.index[:5].tolist()
+
+                # Deduplicate (just in case) and filter the table
+                champion_configs = list(dict.fromkeys(champion_configs))
+                filtered_table = table[champion_configs]
+                n_blocks, k = filtered_table.shape
+
+                # Write Summary Block
                 result_block = (
                     f"Dataset: {dataset.upper()} | Model: {model.upper()}\n"
-                    f"  Best Accuracy:  {best_row['mean_accuracy']:.4f}\n"
-                    f"  Mean Time/Fold: {best_row['mean_time']:.4f} seconds\n"
-                    f"  Optimal Params: {best_row['params']}\n"
-                    f"{'-' * 60}\n"
+                    f"  Absolute Best Config: {best_absolute_config}\n"
+                    f"  Mean Accuracy:        {best_acc:.4f}\n"
+                    f"  Mean Time/Fold:       {best_time:.4f} seconds\n"
+                    f"  Total Configs Tested: {table.shape[1]}\n"
+                    f"  Champions Extracted:  {k} (Used for Statistical Testing)\n"
                 )
-
-                print(result_block, end="")
                 f.write(result_block)
+
+                # 3. Statistical Testing on the Champions Only
+                if k >= 3:
+                    try:
+                        friedman = stats.friedman_test(filtered_table)
+                        f.write(f"  Friedman p-value:     {friedman.iman_davenport_p_value:.4e}\n")
+
+                        if friedman.iman_davenport_p_value < 0.05:
+                            f.write(
+                                "  -> Significant differences found among champions. "
+                                "Running Nemenyi...\n"
+                            )
+                            posthoc = stats.nemenyi_test(filtered_table)
+
+                            # Plot and save CD diagram
+                            diagram_path = (
+                                out_dir
+                                / dataset
+                                / MODEL_NAMING[model]
+                                / f"cd_diagram_{dataset}_{MODEL_NAMING[model]}_champions.png"
+                            )
+                            stats.plot_cd_diagram(
+                                posthoc,
+                                title=f"Nemenyi CD (Champions) - "
+                                f"{model.upper()} on {dataset.upper()}",
+                                path=diagram_path,
+                            )
+                            f.write(f"  -> CD Diagram saved to: {diagram_path.name}\n")
+
+                            # Extract the statistically top group
+                            groups = stats.nemenyi_groups(posthoc)
+                            best_rank_config = posthoc.mean_ranks.index[0]
+                            top_group = next(g for g in groups if best_rank_config in g)
+
+                            f.write(
+                                f"  Statistically Top Group (Equivalent to {best_rank_config}):\n"
+                            )
+                            for c in top_group:
+                                f.write(f"    * {c} (Mean Rank: {posthoc.mean_ranks[c]:.2f})\n")
+                        else:
+                            f.write("  -> No significant differences found among the champions.\n")
+                    except ValueError as e:
+                        f.write(f"  -> Stats Error: {e}\n")
+
+                elif k == 2:
+                    # Fallback to Wilcoxon if only 2 champions were extracted
+                    config1, config2 = filtered_table.columns
+                    paired = stats.compare_two(filtered_table, config1, config2)
+                    f.write(f"  Wilcoxon p-value:     {paired.wilcoxon_p_value:.4e}\n")
+                    if paired.wilcoxon_p_value < 0.05:
+                        winner = config2 if paired.r_plus > paired.r_minus else config1
+                        f.write(f"  -> Significant difference. Winner: {winner}\n")
+                    else:
+                        f.write("  -> No significant difference between the two champions.\n")
+                else:
+                    f.write("  -> Only 1 champion extracted. No statistical comparison possible.\n")
+
+                f.write("-" * 80 + "\n\n")
 
     print(f"\nSummary report successfully saved to: {report_file}")
 
