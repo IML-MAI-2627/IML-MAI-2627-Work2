@@ -130,6 +130,42 @@ def test_run_svm_with_dynamic_params(tmp_path, require_datasets):
     assert "kernel=poly" in params_string
 
 
+def test_run_knn_with_dynamic_params(tmp_path, require_datasets):
+    out_file = tmp_path / "knn_out.csv"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--dataset",
+            "vowel",
+            "--classifier",
+            "knn",
+            "--out",
+            str(out_file),
+            "--k",
+            "5",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+    with out_file.open("r", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+
+    assert len(rows) == 10
+    assert rows[0]["model"] == "kNN"
+
+    # Explicit and injected default parameters are both serialized
+    params_string = rows[0]["params"]
+    assert "k=5" in params_string
+    assert "distance=euclidean" in params_string
+    assert "voting=majority" in params_string
+    assert float(rows[0]["storage"]) == 100.0
+
+
 def test_run_rejects_malformed_unknown_args():
     # We don't need require_datasets here because it should fail at the argparse stage
     result = subprocess.run(

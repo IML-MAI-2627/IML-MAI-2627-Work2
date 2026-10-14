@@ -57,7 +57,7 @@ python experiments/run.py --dataset <name> --classifier <model_id> [model_hyperp
 
 - --dataset (string): The dataset to use. Valid values: vowel, splice.
 
-- --classifier (string): The model to execute. Valid values: baseline, rf.
+- --classifier (string): The model to execute. Valid values: baseline, knn, rf, svm.
 
 - --out (optional, path): Destination for the CSV results. Defaults to results/<classifier>_<dataset>.csv.
 
@@ -128,6 +128,20 @@ These parameters are passed as optional flags. If omitted, the model will fall b
       Example:
         ```bash
         python experiments/run.py --dataset splice --classifier svm --C 1.5 --max_iter 1000
+        ```
+- k-Nearest Neighbours (`--classifier knn`), own implementation (`kNNAlgorithm` in `src/knn_base.py`)
+
+    - `--k` (positive integer): Number of neighbours. Default: 3.
+
+    - `--distance` (string): Distance function, selected by name from `DISTANCES` in `src/distances.py`.
+      Currently: `euclidean` (on the one-hot representation). Default: `euclidean`.
+
+    - `--voting` (string): Voting policy, selected by name from `VOTING` in `src/voting.py`.
+      Currently: `majority` (ties go to the class of the nearest tied neighbour). Default: `majority`.
+
+      Example:
+        ```bash
+        python experiments/run.py --dataset vowel --classifier knn --k 5 --distance euclidean --voting majority
         ```
 
 The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.

@@ -393,6 +393,95 @@ Status: **decided** / **pending**.
       codes would create false distances and orderings between nominal values (e.g., A/C/G/T). One-hot encoding ensures
       orthogonal geometric distances between categories. (decided)
 
+## kNN (issue #6, `src/knn_base.py`, `src/models/knn.py`)
+
+### Structure
+
+- **Two layers: `kNNAlgorithm(...)` is the algorithm, `KNN(BaseClassifier)` is the adapter.**
+  `kNNAlgorithm(train, test, k, distance_function, voting_function)` in `src/knn_base.py` does the
+  neighbour retrieval and voting. `KNN` in `src/models/knn.py` follows the same structure as `SVM` and
+  `RandomForest` (`parse_params`, `prepare_data`, `fit_predict`), so `experiments/run.py`
+  (`--classifier knn`) runs it like any other model. `experiments/grid_search.py` does not include
+  the kNN yet; the kNN grid is issue #15.
+    - *Why:* the assignment requires the name `kNNAlgorithm(...)`, and the runner needs the common
+      `BaseClassifier` interface. `fit_predict` only calls `kNNAlgorithm`. (decided)
+- **Own code with numpy, no scikit-learn** in `knn_base.py`, `distances.py`, `voting.py` and
+  `models/knn.py`. scikit-learn's `KNeighborsClassifier` is used only in a test as a sanity check.
+    - *Why:* Numpy is used for array operations inside our own kNN (distance matrix, sorting),
+        the kNN logic itself (neighbour selection, tie-breaking, voting) is our own code. On splice
+        it is ~100x faster than plain Python loops. (decided)
+- **Checked against scikit-learn (`KNeighborsClassifier`, brute force) on all 10 folds:** identical
+  predictions for k=1 on both datasets; for k>1 every difference comes from a tie (at the k-th
+  neighbour or in the vote), which we break deterministically and sklearn does not. (note)
+
+### Neighbour retrieval
+
+- **Distances are computed as one `(n_test, n_train)` matrix per call** (vectorised with numpy).
+  With `run.py`, each configuration is a separate `KNN` and each `fit_predict` computes the matrix
+  again. The API also allows reuse: `nearest_neighbors(..., k_max=7)` once, then `predict` for
+  K = 3, 5, 7 and every voting policy. (decided)
+    - *Planned for the grid (#15):* reuse the neighbours across K and voting to make the 96
+      configurations affordable. The `time` column must then stay comparable with SVM / RF (e.g.
+      charge each configuration the shared distance time plus its own voting time). (pending)
+- **Neighbour order is deterministic:** stable argsort, so ties in distance go to the lower training
+  index. Voting policies receive neighbours ordered by `(distance, index)`. (decided)
+- **All distances must be finite and non-negative, and the matrix must have the right shape.**
+  Otherwise `ValueError` before voting. (decided)
+
+### Parameters and validation (Fail-Fast philosophy, as in SVM / RF)
+
+- **Parameters: `k` (default 3), `distance` (default `euclidean`), `voting` (default `majority`).**
+  Unknown keys, a non-integer or non-positive `k` (including `"None"`), and unknown strategy names
+  raise `ValueError`. Names are case-insensitive. Defaults are injected into `params` so they appear
+  in the CSV. (decided)
+- **Strategies are selected by name** through the registries `DISTANCES` (`src/distances.py`) and
+  `VOTING` (`src/voting.py`). `self.params` keeps only the names; the callables are looked up in
+  `fit_predict`.
+    - *Why:* the CLI passes strings, and the CSV `params` column must show readable names, not
+      `<function ...>`. (decided)
+- **`prepare_data` validates and returns the `Preprocessed` folds unchanged** (non-empty, aligned).
+  Unlike SVM / RF it does not build one matrix. `k <= n_train` is checked once, inside
+  `nearest_neighbors`.
+    - *Why:* each distance chooses its own representation (`to_onehot()` for the numeric-only metrics,
+      `X_num` / `X_nom` for HEOM). The folds are cached by the runner, so they are never modified. (decided)
+- **No `random_state`:** the kNN is deterministic. (decided)
+- **`storage = len(train.y)`** (100%). Retention and reduction will report the retained count. (decided)
+
+### Strategies included in this issue
+
+- **`euclidean`:** Minkowski r=2 on `to_onehot()`, all weights 1. Computed as two exact parts:
+  numeric squared differences, plus `2 x (number of different nominal values)`, because two one-hot
+  rows of one attribute differ in 0 or 2 columns. The number of matches comes from a product of
+  0/1 matrices, which is exact, so equal rows give exactly 0 and ties remain ties.
+    - *Why:* a direct one-hot difference needs an `(n_test, n_train, n_onehot)` array (~2 GB on
+      splice), and a row-by-row loop took 0.69 s per splice fold against 0.027 s now. The matrix is
+      identical on splice; on vowel it differs by at most 2e-16 and the 7 nearest neighbours of every
+      test case are the same in all 10 folds. (decided)
+    - *Why one-hot:* follows the pending proposal "nominals in Euclidean/Manhattan/Clark use the one-hot
+      version"; integer codes would impose a false order. (decided for euclidean, team to confirm)
+- **`majority`:** most frequent class; **a tie goes to the tied class of the nearest neighbour**
+  (the first one in `(distance, index)` order). (decided)
+- **Sanity check:** 1-NN euclidean on vowel gives 0.9889 mean accuracy over the 10 folds, the same as
+  the 1-NN check of the preprocessing (~98.9%). k=3 on splice gives 0.795 (baseline 0.52). (note)
+
+### Integration contract for follow-up issues
+
+- **Distances (#7, #8):** `def metric(train: Preprocessed, test: Preprocessed) -> np.ndarray` returning
+  the `(n_test, n_train)` matrix, registered in `DISTANCES` under its CLI name.
+- **Voting (#9):** `def policy(neighbors: Sequence[Neighbor]) -> int` with a deterministic tie-break,
+  registered in `VOTING`. A policy parameter such as `p` for IDW is added to `default_params` in
+  `models/knn.py` and validated in `parse_params`.
+- **Reduction (#16-#18):** neighbours inside the training set: call the distance function directly
+  (`D = distance_function(train, train)`), **set the diagonal to `inf`** (`np.fill_diagonal`) so a
+  case is never its own neighbour, and select with a stable argsort, as `nearest_neighbors` does.
+  `nearest_neighbors` itself cannot be used here, because it rejects non-finite distances. Do not drop "the neighbour at distance 0" or "the first neighbour": with duplicate rows
+  a lower-index copy sorts first, and with more than k + 1 copies the case itself may not be among
+  the k + 1 nearest. `reduction_kNNAlgorithm(...)` (#19)
+  follows the same pattern: a function with the required name plus a `BaseClassifier` adapter.
+- **Retention (#10, #11):** the matrix assumes a fixed case base (NR). AR / DC / OG change the case
+  base while the test set is processed, so they need sequential processing. (pending)
+- Strategies must never modify `train` or `test`.
+
 ## Hyperparameter Tuning (Grid Search)
 
 ### Manual Implementation (`experiments/gridsearch.py`)
@@ -489,6 +578,11 @@ Status: **decided** / **pending**.
 | Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                                     | `src/experiment_runner.py`            |
 | Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                                        | `src/models/random_forest.py`         |
 | Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                                                | `src/models/svm.py`                   |
+| kNN                                  | `kNNAlgorithm`: one vectorised distance matrix, stable argsort, injected distance and voting                        | Own code + `numpy`                                                                               | `src/knn_base.py`                     |
+| kNN adapter                          | `KNN(BaseClassifier)`, strategies selected by name                                                                  | Own code                                                                                         | `src/models/knn.py`                   |
+| kNN distances                        | Euclidean on the one-hot representation (registry `DISTANCES`)                                                      | Own code + `numpy`                                                                               | `src/distances.py`                    |
+| kNN voting                           | Majority, tie goes to the nearest tied neighbour (registry `VOTING`)                                                | Own code (`collections.Counter`)                                                                 | `src/voting.py`                       |
+| Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `src/experiments/grid_search.py`      |
 | Grid Search                          | Extracting optimal models using grid_search and applying the statistical tests                                      | Own code                                                                                         | `src/experiments/grid_search.py`      |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |
 | EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                                    | `experiments/eda.py`                  |
@@ -518,9 +612,11 @@ Not used (on purpose):
 
 ## Pending decisions
 
-| Topic                                                        | Proposal                                 | Needs                             |
-|--------------------------------------------------------------|------------------------------------------|-----------------------------------|
-| Distance chosen as "one you may choose"                      | HEOM (simple, no train statistics)       | Team decision before the kNN (#6) |
-| Nominal attributes in Euclidean / Manhattan / Clark-Camberra | Use the one-hot version                  | Team decision before the kNN (#6) |
-| Clark / Camberra with 0/0                                    | Define the term as 0                     | Implement in the kNN              |
-| vowel columns                                                | See "Dropped columns" (A/B/C comparison) | After the kNN exists              |
+| Topic                                                        | Proposal                                                        | Needs                   |
+|--------------------------------------------------------------|-----------------------------------------------------------------|-------------------------|
+| Distance chosen as "one you may choose"                      | HEOM (simple, no train statistics)                              | Team decision before #8 |
+| Nominal attributes in Euclidean / Manhattan / Clark-Camberra | Use the one-hot version (already used by `euclidean`)           | Team confirmation (#7)  |
+| Clark / Camberra with 0/0                                    | Define the term as 0                                            | Implement in the kNN    |
+| vowel columns                                                | See "Dropped columns" (A/B/C comparison)                        | After the kNN exists    |
+| numpy inside the kNN                                         | Keep the numpy distance matrix                                  | Ask the professor       |
+| kNN with retention (AR / DC / OG)                            | Sequential processing of the test set over a changing case base | #10, #11                |
