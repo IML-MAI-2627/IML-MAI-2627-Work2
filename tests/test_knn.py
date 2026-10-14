@@ -5,7 +5,7 @@ import pytest
 from sklearn.neighbors import KNeighborsClassifier
 
 import config
-from distances import DISTANCES, canberra, clark, euclidean, manhattan
+from distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from experiment_runner import ClassificationResult
 from knn_base import Neighbor, kNNAlgorithm
 from models.knn import KNN, default_params
@@ -317,6 +317,38 @@ def test_clark_has_same_neighbour_order_as_its_square_root_version(small_fold):
 
 def test_clark_is_registered():
     assert DISTANCES["clark"] is clark
+
+
+def test_heom_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # sqrt(numeric difference^2 + number of different nominal values).
+    expected = np.array(
+        [
+            [0.05, 0.05, np.sqrt(0.85**2 + 1), np.sqrt(0.95**2 + 1)],
+            [np.sqrt(0.95**2 + 1), np.sqrt(0.85**2 + 1), 0.05, 0.05],
+        ]
+    )
+    np.testing.assert_allclose(heom(train, test), expected)
+
+
+def test_heom_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(heom(train, train)) == 0.0)
+
+
+def test_heom_has_same_neighbour_order_as_euclidean_without_numeric_attributes():
+    # Only nominal attributes (like splice): heom = sqrt(m), euclidean = sqrt(2m).
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"),) * 4
+    train = make_preprocessed(
+        np.zeros((8, 0)), rng.integers(0, 3, size=(8, 4)), [0] * 8, nom_values
+    )
+    test = make_preprocessed(np.zeros((5, 0)), rng.integers(0, 3, size=(5, 4)), [0] * 5, nom_values)
+    np.testing.assert_allclose(heom(train, test) * np.sqrt(2), euclidean(train, test))
+
+
+def test_heom_is_registered():
+    assert DISTANCES["heom"] is heom
 
 
 # ---------------------------------------------------------------------------

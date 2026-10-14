@@ -79,9 +79,23 @@ def clark(train: Preprocessed, test: Preprocessed) -> np.ndarray:
     return numeric + 2.0 * _nominal_mismatches(train, test)
 
 
+def heom(train: Preprocessed, test: Preprocessed) -> np.ndarray:
+    """Heterogeneous Euclidean-Overlap Metric (Wilson & Martinez, 1997, section 2.3).
+
+    Numeric attributes: |x - y| / range; our data is already min-max scaled with the train
+    range, so the range is 1. Nominal attributes: overlap, 0 if equal and 1 if different.
+    Unknown values would count as 1, but the preprocessing has already imputed them.
+    Unlike ``euclidean`` on one-hot (2 per different value), a different value adds 1.
+    """
+    numeric = np.sum((test.X_num[:, None, :] - train.X_num[None, :, :]) ** 2, axis=2)
+    mismatches = _nominal_mismatches(train, test)
+    return np.sqrt(numeric + mismatches)
+
+
 DISTANCES: dict[str, DistanceFunction] = {
     "euclidean": euclidean,
     "manhattan": manhattan,
     "canberra": canberra,
     "clark": clark,
+    "heom": heom,
 }
