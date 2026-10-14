@@ -171,11 +171,6 @@ TOP_COMBINATIONS = {
     },
 }
 
-MODEL_NAMING = {
-    "Random Forest": "rf",
-    "Support Vector Machine": "svm",
-}
-
 
 def parse_params_str(p_str: str) -> dict:
     """Safely converts a parameter string like 'C=1.0;kernel=linear' back into a dictionary."""
@@ -187,6 +182,9 @@ def parse_params_str(p_str: str) -> dict:
         return {}
 
 
+# ---------------------------------------------------------
+# 4. Evaluation Phase (Statistical Analysis)
+# ---------------------------------------------------------
 def evaluate_results(out_dir: Path):
     print("--- Evaluating Grid Search Results with Statistical Tests ---")
 
@@ -231,10 +229,14 @@ def evaluate_results(out_dir: Path):
         f.write("OPTIMAL HYPERPARAMETERS & STATISTICAL ANALYSIS\n")
         f.write("==============================================\n\n")
 
-        # Evaluate per dataset and per model
+        # Evaluate per dataset
         for dataset in full_df["dataset"].unique():
+            # --- NEW: Collector for the Head-to-Head Cross-Model Wilcoxon ---
+            best_mean_configs_data = {}
+            best_rank_configs_data = {}
+
+            # Evaluate per model
             for model in full_df["model"].unique():
-                # Filter specific dataset and model
                 subset = full_df[
                     (full_df["dataset"] == dataset) & (full_df["model"] == model)
                 ].copy()
@@ -244,13 +246,20 @@ def evaluate_results(out_dir: Path):
 
                 print(f"  -> Analyzing {model.upper()} on {dataset.upper()}...")
 
-                # Assign standard config names for easy grouping
+                # Map long model names ("Support Vector Machine") back to short names ("svm")
+                short_model = (
+                    "rf"
+                    if "random forest" in model.lower()
+                    else "svm"
+                    if "support vector" in model.lower()
+                    else model.lower()
+                )
+
                 subset["config"] = [
                     stats.config_name(m, p)
                     for m, p in zip(subset["model"], subset["params"], strict=False)
                 ]
 
-                # Convert to Fold x Configs table
                 try:
                     table = stats.score_table(subset, dataset=dataset, metric="accuracy")
                 except ValueError as e:
@@ -267,34 +276,32 @@ def evaluate_results(out_dir: Path):
                 best_acc = mean_accs.iloc[0]
                 best_time = mean_times[best_absolute_config]
 
+                # Save the best configuration's fold data for the Cross-Model Wilcoxon later
+                best_mean_configs_data[best_absolute_config] = table[best_absolute_config]
+
                 # 2. Extract the Champions based on TOP_COMBINATIONS
                 champion_configs = []
-                if MODEL_NAMING[model] in TOP_COMBINATIONS:
-                    grid = TOP_COMBINATIONS[MODEL_NAMING[model]]
+
+                if short_model in TOP_COMBINATIONS:
+                    grid = TOP_COMBINATIONS[short_model]
                     keys = grid.keys()
 
-                    # Iterate over every defining target combination (e.g., linear+balanced)
                     for instance in itertools.product(*grid.values()):
                         target_comb = dict(zip(keys, instance, strict=False))
 
-                        # Find all configs that match this specific combination
                         matching_configs = []
                         for conf in mean_accs.index:
                             p_str = subset.loc[subset["config"] == conf, "params"].iloc[0]
                             p_dict = parse_params_str(p_str)
 
-                            # Check if the config satisfies the target combination
                             if all(p_dict.get(k) == str(v) for k, v in target_comb.items()):
                                 matching_configs.append(conf)
 
-                        # Since mean_accs is already sorted descending, the first match is the best!
                         if matching_configs:
                             champion_configs.append(matching_configs[0])
                 else:
-                    # Fallback: just take the top 5 absolute best if model not in TOP_COMBINATIONS
                     champion_configs = mean_accs.index[:5].tolist()
 
-                # Deduplicate (just in case) and filter the table
                 champion_configs = list(dict.fromkeys(champion_configs))
                 filtered_table = table[champion_configs]
                 n_blocks, k = filtered_table.shape
@@ -302,7 +309,7 @@ def evaluate_results(out_dir: Path):
                 # Write Summary Block
                 result_block = (
                     f"Dataset: {dataset.upper()} | Model: {model.upper()}\n"
-                    f"  Absolute Best Config: {best_absolute_config}\n"
+                    f"  Best Mean Accuracy Config: {best_absolute_config}\n"
                     f"  Mean Accuracy:        {best_acc:.4f}\n"
                     f"  Mean Time/Fold:       {best_time:.4f} seconds\n"
                     f"  Total Configs Tested: {table.shape[1]}\n"
@@ -310,7 +317,7 @@ def evaluate_results(out_dir: Path):
                 )
                 f.write(result_block)
 
-                # 3. Statistical Testing on the Champions Only
+                # 3. Statistical Testing on the Champions Only (Intra-Model)
                 if k >= 3:
                     try:
                         friedman = stats.friedman_test(filtered_table)
@@ -318,55 +325,83 @@ def evaluate_results(out_dir: Path):
 
                         if friedman.iman_davenport_p_value < 0.05:
                             f.write(
-                                "  -> Significant differences found among champions. "
-                                "Running Nemenyi...\n"
+                                "  -> Significant differences found "
+                                "among champions. Running Nemenyi...\n"
                             )
                             posthoc = stats.nemenyi_test(filtered_table)
 
-                            # Plot and save CD diagram
+                            # USE SHORT_MODEL FOR CONSISTENT FOLDERS AND FILENAMES
+                            model_dir = out_dir / dataset / short_model
+                            model_dir.mkdir(parents=True, exist_ok=True)
+
                             diagram_path = (
-                                out_dir
-                                / dataset
-                                / MODEL_NAMING[model]
-                                / f"cd_diagram_{dataset}_{MODEL_NAMING[model]}_champions.png"
+                                model_dir / f"cd_diagram_{dataset}_{short_model}_champions.png"
                             )
                             stats.plot_cd_diagram(
                                 posthoc,
-                                title=f"Nemenyi CD (Champions) - "
-                                f"{model.upper()} on {dataset.upper()}",
+                                title=f"Nemenyi CD (Champions) - {model.upper()} "
+                                f"on {dataset.upper()}",
                                 path=diagram_path,
                             )
                             f.write(f"  -> CD Diagram saved to: {diagram_path.name}\n")
 
-                            # Extract the statistically top group
-                            groups = stats.nemenyi_groups(posthoc)
                             best_rank_config = posthoc.mean_ranks.index[0]
-                            top_group = next(g for g in groups if best_rank_config in g)
-
-                            f.write(
-                                f"  Statistically Top Group (Equivalent to {best_rank_config}):\n"
-                            )
-                            for c in top_group:
-                                f.write(f"    * {c} (Mean Rank: {posthoc.mean_ranks[c]:.2f})\n")
-                        else:
-                            f.write("  -> No significant differences found among the champions.\n")
+                            best_rank_configs_data[best_rank_config] = filtered_table[
+                                best_rank_config
+                            ]
                     except ValueError as e:
                         f.write(f"  -> Stats Error: {e}\n")
 
                 elif k == 2:
-                    # Fallback to Wilcoxon if only 2 champions were extracted
                     config1, config2 = filtered_table.columns
                     paired = stats.compare_two(filtered_table, config1, config2)
                     f.write(f"  Wilcoxon p-value:     {paired.wilcoxon_p_value:.4e}\n")
                     if paired.wilcoxon_p_value < 0.05:
                         winner = config2 if paired.r_plus > paired.r_minus else config1
                         f.write(f"  -> Significant difference. Winner: {winner}\n")
+                        # NEW: Send the Wilcoxon winner to the tournament
+                        best_rank_configs_data[winner] = filtered_table[winner]
                     else:
                         f.write("  -> No significant difference between the two champions.\n")
+                        # NEW: If tied, send the absolute best to the tournament
+                        best_rank_configs_data[config1] = filtered_table[config1]
                 else:
                     f.write("  -> Only 1 champion extracted. No statistical comparison possible.\n")
+                    # NEW: Send the only champion to the tournament
+                    best_rank_configs_data[best_absolute_config] = filtered_table[
+                        best_absolute_config
+                    ]
 
                 f.write("-" * 80 + "\n\n")
+
+            # =====================================================================
+            # 4. CROSS-MODEL HEAD-TO-HEAD (Best RF vs Best SVM)
+            # =====================================================================
+            if len(best_rank_configs_data) == 2:
+                names = list(best_rank_configs_data.keys())
+                config1, config2 = names[0], names[1]
+
+                # Combine the two absolute bests into a 10x2 DataFrame
+                head_to_head_table = pd.concat(
+                    [best_rank_configs_data[config1], best_rank_configs_data[config2]], axis=1
+                )
+
+                print(f"  -> Running Wilcoxon Head-to-Head on {dataset.upper()}...")
+
+                f.write(f"CROSS-MODEL HEAD-TO-HEAD: {dataset.upper()}\n")
+                f.write(f"  Model 1: {config1}\n")
+                f.write(f"  Model 2: {config2}\n")
+
+                paired = stats.compare_two(head_to_head_table, config1, config2)
+                f.write(f"  Wilcoxon p-value:     {paired.wilcoxon_p_value:.4e}\n")
+
+                if paired.wilcoxon_p_value < 0.05:
+                    winner = config2 if paired.r_plus > paired.r_minus else config1
+                    f.write(f"  -> Significant difference. Winner: {winner}\n")
+                else:
+                    f.write("  -> No significant difference between the absolute best models.\n")
+
+                f.write("=" * 80 + "\n\n")
 
     print(f"\nSummary report successfully saved to: {report_file}")
 
