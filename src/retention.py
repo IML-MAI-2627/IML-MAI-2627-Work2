@@ -7,7 +7,7 @@ in ``RETENTION`` so they can be selected by name.
 
 from __future__ import annotations
 
-from knn_base import RetentionFunction
+from knn_base import OblivionByGoodness, RetentionFunction
 
 
 def never_retain(prediction: int, label: int) -> bool:
@@ -25,8 +25,9 @@ def different_class(prediction: int, label: int) -> bool:
     return prediction != label
 
 
-RETENTION: dict[str, RetentionFunction] = {
+RETENTION: dict[str, RetentionFunction | OblivionByGoodness] = {
     "never": never_retain,
     "always": always_retain,
     "different_class": different_class,
+    "oblivion_by_goodness": OblivionByGoodness(),
 }

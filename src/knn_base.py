@@ -39,6 +39,21 @@ VotingFunction = Callable[[Sequence[Neighbor]], int]
 RetentionFunction = Callable[[int, int], bool]
 
 
+@dataclass(frozen=True)
+class OblivionByGoodness:
+    """OG retention (course slides, session 2, slide 22): retain every solved case and forget
+    the ones whose goodness drops below the threshold.
+
+    Every case starts at ``initial`` goodness. After each query, only its retrieved
+    neighbours update: G <- G + alpha * (r - G), with r = 1 if the neighbour's class equals
+    the query's true class and 0 otherwise.
+    """
+
+    initial: float = 0.5
+    alpha: float = 0.2
+    threshold: float = 0.5
+
+
 def check_k(k: object, limit: int | None = None) -> int:
     """Validate k (Python or numpy integer) and return it as a Python int."""
     if isinstance(k, bool) or not isinstance(k, int | np.integer) or k <= 0:
@@ -124,7 +139,7 @@ def _run_with_retention(
     k: int,
     distance_function: DistanceFunction,
     voting_function: VotingFunction,
-    retention_function: RetentionFunction,
+    retention_function: RetentionFunction | OblivionByGoodness,
 ) -> KNNRun:
     """Solve the test cases one by one, in order, and retain them as the policy says.
 
@@ -144,6 +159,9 @@ def _run_with_retention(
     active = np.zeros(n_train + n_test, dtype=bool)
     active[:n_train] = True
 
+    og = retention_function if isinstance(retention_function, OblivionByGoodness) else None
+    goodness = np.full(n_train + n_test, og.initial if og is not None else 0.0)
+
     predictions = []
     for i in range(n_test):
         candidates = np.flatnonzero(active)  # increasing index
@@ -155,7 +173,17 @@ def _run_with_retention(
         ]
         prediction = _check_vote(voting_function(nearest))
         predictions.append(prediction)
-        if retention_function(prediction, int(test.y_codes[i])):
+        true_label = int(test.y_codes[i])
+        if og is not None:
+            # Only the retrieved neighbours update their goodness (in distance order).
+            for j in order:
+                reward = 1.0 if base_labels[j] == true_label else 0.0
+                goodness[j] += og.alpha * (reward - goodness[j])
+                # Forget it, but never leave fewer than k cases in the case base.
+                if goodness[j] < og.threshold and active.sum() > k:
+                    active[j] = False
+            active[n_train + i] = True  # OG retains every solved case
+        elif retention_function(prediction, true_label):
             active[n_train + i] = True
 
     return KNNRun(predictions=predictions, case_base_size=int(active.sum()))
@@ -167,7 +195,7 @@ def run_kNN(
     k: int,
     distance_function: DistanceFunction,
     voting_function: VotingFunction,
-    retention_function: RetentionFunction | None = None,
+    retention_function: RetentionFunction | OblivionByGoodness | None = None,
 ) -> KNNRun:
     """kNN with an optional retention policy; None means never retain (fast batch path)."""
     if retention_function is None:
@@ -184,7 +212,7 @@ def kNNAlgorithm(
     k: int,
     distance_function: DistanceFunction,
     voting_function: VotingFunction,
-    retention_function: RetentionFunction | None = None,
+    retention_function: RetentionFunction | OblivionByGoodness | None = None,
 ) -> list[int]:
     """Predict one class code per test case with the k nearest cases of the case base.
 

@@ -7,7 +7,7 @@ from sklearn.neighbors import KNeighborsClassifier
 import config
 from distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from experiment_runner import ClassificationResult
-from knn_base import Neighbor, kNNAlgorithm, run_kNN
+from knn_base import Neighbor, OblivionByGoodness, kNNAlgorithm, run_kNN
 from models.knn import KNN, default_params
 from preprocessing import Preprocessed, preprocess_fold
 from retention import RETENTION, always_retain, different_class, never_retain
@@ -499,6 +499,7 @@ def test_retention_registry():
         "never": never_retain,
         "always": always_retain,
         "different_class": different_class,
+        "oblivion_by_goodness": OblivionByGoodness(),
     }
 
 
@@ -519,3 +520,37 @@ def test_fit_predict_storage_is_final_case_base_size(small_fold, retention, expe
     train, test = small_fold
     result = KNN({"k": 1, "retention": retention}).fit_predict(train, test)
     assert result.storage == expected_storage
+
+
+@pytest.fixture
+def og_fold():
+    no_nom_train = np.zeros((2, 0), dtype=int)
+    no_nom_test = np.zeros((3, 0), dtype=int)
+    train = make_preprocessed([[0.0], [1.0]], no_nom_train, [0, 1])
+    test = make_preprocessed([[0.2], [0.9], [0.95]], no_nom_test, [0, 0, 1])
+    return train, test
+
+
+def test_oblivion_by_goodness_hand_computed_sequence(og_fold):
+    # q0 -> A right (G_A 0.6); q1 -> B wrong (G_B 0.4, forgotten);
+    # q2 -> q1 wrong (G_q1 0.4, forgotten). Final case base: A, q0, q2.
+    train, test = og_fold
+    run = run_kNN(train, test, 1, euclidean, majority, OblivionByGoodness())
+    assert run.predictions == [0, 1, 0]
+    assert run.case_base_size == 3
+
+
+def test_oblivion_by_goodness_forgets_compared_with_always_retain(og_fold):
+    train, test = og_fold
+    always = run_kNN(train, test, 1, euclidean, majority, always_retain)
+    assert always.case_base_size == 5
+
+
+def test_oblivion_by_goodness_never_leaves_fewer_than_k_cases():
+    # k=2 and both training cases are wrong for q0: both drop to 0.4, but deleting them
+    # would leave fewer than k cases, so they stay. q0 is then retained -> 3 cases.
+    no_nom = np.zeros((2, 0), dtype=int)
+    train = make_preprocessed([[0.0], [1.0]], no_nom, [0, 0])
+    test = make_preprocessed([[0.5]], np.zeros((1, 0), dtype=int), [1])
+    run = run_kNN(train, test, 2, euclidean, majority, OblivionByGoodness())
+    assert run.case_base_size == 3
