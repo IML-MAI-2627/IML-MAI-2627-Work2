@@ -5,12 +5,13 @@ import pytest
 from sklearn.neighbors import KNeighborsClassifier
 
 import config
-from distances import DISTANCES, euclidean
+from distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from experiment_runner import ClassificationResult
-from knn_base import Neighbor, kNNAlgorithm
+from knn_base import Neighbor, OblivionByGoodness, kNNAlgorithm, run_kNN
 from models.knn import KNN, default_params
 from preprocessing import Preprocessed, preprocess_fold
-from voting import VOTING, majority
+from retention import RETENTION, always_retain, different_class, never_retain
+from voting import VOTING, inverse_distance, majority
 
 
 def make_preprocessed(X_num, X_nom, labels, nom_values=None) -> Preprocessed:
@@ -58,6 +59,15 @@ def small_fold():
 
 def test_parse_params_injects_defaults():
     assert KNN({}).params == default_params
+
+
+def test_parse_params_resolves_retention_case_insensitively():
+    assert KNN({"retention": "Always"}).params["retention"] == "always"
+
+
+def test_parse_params_rejects_unknown_retention():
+    with pytest.raises(ValueError, match="Invalid retention"):
+        KNN({"retention": "sometimes"})
 
 
 def test_parse_params_casts_k_from_cli_string():
@@ -198,6 +208,159 @@ def test_euclidean_matches_direct_one_hot_computation(n_num):
     np.testing.assert_allclose(euclidean(train, test), direct, rtol=0, atol=1e-12)
 
 
+def test_manhattan_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # |numeric difference| + 2 * (different nominal values), computed by hand.
+    expected = np.array(
+        [
+            [0.05, 0.05, 2.85, 2.95],
+            [2.95, 2.85, 0.05, 0.05],
+        ]
+    )
+    np.testing.assert_allclose(manhattan(train, test), expected)
+
+
+def test_manhattan_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(manhattan(train, train)) == 0.0)
+
+
+@pytest.mark.parametrize("n_num", [0, 3])
+def test_manhattan_matches_direct_one_hot_computation(n_num):
+    # Sum of |differences| over the full one-hot vectors, computed the slow, obvious way.
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"), ("x", "y", "z"))
+    train = make_preprocessed(
+        rng.random((8, n_num)), rng.integers(0, 3, size=(8, 2)), [0] * 8, nom_values
+    )
+    test = make_preprocessed(
+        rng.random((5, n_num)), rng.integers(0, 3, size=(5, 2)), [0] * 5, nom_values
+    )
+    a, b = test.to_onehot(), train.to_onehot()
+    direct = np.abs(a[:, None, :] - b[None, :, :]).sum(axis=2)
+    np.testing.assert_allclose(manhattan(train, test), direct, rtol=0, atol=1e-12)
+
+
+def test_manhattan_is_registered():
+    assert DISTANCES["manhattan"] is manhattan
+
+
+def test_canberra_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # sum |x - y| / (|x| + |y|) over numeric values + 2 * (different nominal values).
+    expected = np.array(
+        [
+            [1.0, 0.05 / 0.15, 0.85 / 0.95 + 2, 0.95 / 1.05 + 2],
+            [3.0, 0.85 / 1.05 + 2, 0.05 / 1.85, 0.05 / 1.95],
+        ]
+    )
+    np.testing.assert_allclose(canberra(train, test), expected)
+
+
+def test_canberra_treats_zero_over_zero_as_zero():
+    # Both numeric values are 0 -> 0/0, which must count as 0 (no nan, no warning).
+    train = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    test = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    assert canberra(train, test)[0, 0] == 0.0
+
+
+def test_canberra_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(canberra(train, train)) == 0.0)
+
+
+@pytest.mark.parametrize("n_num", [0, 3])
+def test_canberra_matches_direct_one_hot_computation(n_num):
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"), ("x", "y", "z"))
+    train = make_preprocessed(
+        rng.random((8, n_num)), rng.integers(0, 3, size=(8, 2)), [0] * 8, nom_values
+    )
+    test = make_preprocessed(
+        rng.random((5, n_num)), rng.integers(0, 3, size=(5, 2)), [0] * 5, nom_values
+    )
+    a, b = test.to_onehot(), train.to_onehot()
+    direct = np.zeros((5, 8))
+    for i in range(5):
+        for j in range(8):
+            for x, y in zip(a[i], b[j], strict=True):
+                if x + y > 0:
+                    direct[i, j] += abs(x - y) / (abs(x) + abs(y))
+    np.testing.assert_allclose(canberra(train, test), direct, rtol=0, atol=1e-12)
+
+
+def test_canberra_is_registered():
+    assert DISTANCES["canberra"] is canberra
+
+
+def test_clark_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # sum (|x - y| / (|x| + |y|))^2 over numeric values + 2 * (different nominal values).
+    expected = np.array(
+        [
+            [1.0, (0.05 / 0.15) ** 2, (0.85 / 0.95) ** 2 + 2, (0.95 / 1.05) ** 2 + 2],
+            [3.0, (0.85 / 1.05) ** 2 + 2, (0.05 / 1.85) ** 2, (0.05 / 1.95) ** 2],
+        ]
+    )
+    np.testing.assert_allclose(clark(train, test), expected)
+
+
+def test_clark_treats_zero_over_zero_as_zero():
+    train = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    test = make_preprocessed([[0.0]], [[0]], [0], (("a", "b"),))
+    assert clark(train, test)[0, 0] == 0.0
+
+
+def test_clark_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(clark(train, train)) == 0.0)
+
+
+def test_clark_has_same_neighbour_order_as_its_square_root_version(small_fold):
+    # The square root is monotonic, so it cannot change which neighbours are nearest.
+    train, test = small_fold
+    d = clark(train, test)
+    np.testing.assert_array_equal(
+        np.argsort(d, axis=1, kind="stable"), np.argsort(np.sqrt(d), axis=1, kind="stable")
+    )
+
+
+def test_clark_is_registered():
+    assert DISTANCES["clark"] is clark
+
+
+def test_heom_matches_hand_computed_values(small_fold):
+    train, test = small_fold
+    # sqrt(numeric difference^2 + number of different nominal values).
+    expected = np.array(
+        [
+            [0.05, 0.05, np.sqrt(0.85**2 + 1), np.sqrt(0.95**2 + 1)],
+            [np.sqrt(0.95**2 + 1), np.sqrt(0.85**2 + 1), 0.05, 0.05],
+        ]
+    )
+    np.testing.assert_allclose(heom(train, test), expected)
+
+
+def test_heom_gives_exact_zero_for_identical_rows(small_fold):
+    train, _ = small_fold
+    assert np.all(np.diag(heom(train, train)) == 0.0)
+
+
+def test_heom_has_same_neighbour_order_as_euclidean_without_numeric_attributes():
+    # Only nominal attributes (like splice): heom = sqrt(m), euclidean = sqrt(2m).
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"),) * 4
+    train = make_preprocessed(
+        np.zeros((8, 0)), rng.integers(0, 3, size=(8, 4)), [0] * 8, nom_values
+    )
+    test = make_preprocessed(np.zeros((5, 0)), rng.integers(0, 3, size=(5, 4)), [0] * 5, nom_values)
+    np.testing.assert_allclose(heom(train, test) * np.sqrt(2), euclidean(train, test))
+
+
+def test_heom_is_registered():
+    assert DISTANCES["heom"] is heom
+
+
 # ---------------------------------------------------------------------------
 # Voting
 # ---------------------------------------------------------------------------
@@ -224,6 +387,39 @@ def as_neighbors(labels):
 def test_majority_tie_goes_to_the_nearest_tied_class(labels, expected):
     assert majority(as_neighbors(labels)) == expected
 
+
+def test_inverse_distance_matches_hand_computed_vote():
+    # Class 0: 1/1 = 1.0. Class 1: 1/4 + 1/4 = 0.5. Class 0 wins, although majority says 1.
+    neighbors = [Neighbor(0, 1.0, 0), Neighbor(1, 4.0, 1), Neighbor(2, 4.0, 1)]
+    assert inverse_distance(neighbors) == 0
+    assert majority(neighbors) == 1
+
+
+def test_inverse_distance_tie_goes_to_nearest_neighbour():
+    # Class 0: 1/1 = 1.0. Class 1: 1/2 + 1/2 = 1.0. Exact tie -> class of the nearest (0).
+    neighbors = [Neighbor(0, 1.0, 0), Neighbor(1, 2.0, 1), Neighbor(2, 2.0, 1)]
+    assert inverse_distance(neighbors) == 0
+
+
+def test_inverse_distance_only_zero_distance_neighbours_vote():
+    # One identical case (d=0) beats two very close cases of another class.
+    neighbors = [Neighbor(0, 0.0, 1), Neighbor(1, 0.5, 0), Neighbor(2, 0.5, 0)]
+    assert inverse_distance(neighbors) == 1
+
+
+def test_inverse_distance_tie_between_zero_distance_neighbours_goes_to_first():
+    # Two identical cases of different classes: equal weight, the first (lowest index) wins.
+    neighbors = [Neighbor(3, 0.0, 1), Neighbor(5, 0.0, 0), Neighbor(1, 0.1, 0)]
+    assert inverse_distance(neighbors) == 1
+
+
+def test_inverse_distance_is_registered():
+    assert VOTING["inverse_distance"] is inverse_distance
+
+
+# ---------------------------------------------------------------------------
+# Retention
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Sanity check against scikit-learn (tests only, never in deliverable code)
@@ -255,3 +451,114 @@ def test_real_fold_accuracy_is_far_above_chance():
 
     predictions = KNN({"k": 1}).fit_predict(train, test).predictions
     assert np.mean(np.asarray(predictions) == test.y_codes) > 0.9
+
+
+@pytest.fixture
+def retention_fold():
+    # 1-D, k=1. Train: x=0 (class 0), x=1 (class 1). Test: x=0.9 and x=0.85, both class 0.
+    # Without retention both are nearest to x=1 -> predicted 1 (wrong).
+    # Retaining the first one (x=0.9, class 0) makes it the nearest of the second -> 0.
+    no_nom = np.zeros((2, 0), dtype=int)
+    train = make_preprocessed([[0.0], [1.0]], no_nom, [0, 1])
+    test = make_preprocessed([[0.9], [0.85]], no_nom, [0, 0])
+    return train, test
+
+
+def test_never_retain_predictions(retention_fold):
+    train, test = retention_fold
+    run = run_kNN(train, test, 1, euclidean, majority, never_retain)
+    assert run.predictions == [1, 1]
+    assert run.case_base_size == 2
+
+
+def test_always_retain_uses_earlier_test_cases(retention_fold):
+    train, test = retention_fold
+    run = run_kNN(train, test, 1, euclidean, majority, always_retain)
+    assert run.predictions == [1, 0]
+    assert run.case_base_size == 4  # 2 train + both test cases
+
+
+def test_different_class_retains_only_mistakes(retention_fold):
+    train, test = retention_fold
+    run = run_kNN(train, test, 1, euclidean, majority, different_class)
+    assert run.predictions == [1, 0]
+    assert run.case_base_size == 3  # 2 train + the first (wrong) one; the second was right
+
+
+@pytest.mark.parametrize("k", [1, 3, 5])
+def test_never_retain_matches_batch_path(k):
+    # The one-by-one loop with NR must give exactly the fast batch predictions.
+    rng = np.random.default_rng(0)
+    nom_values = (("a", "b", "c"),)
+    train = make_preprocessed(
+        rng.random((20, 2)),
+        rng.integers(0, 3, size=(20, 1)),
+        rng.integers(0, 3, size=20),
+        nom_values,
+    )
+    test = make_preprocessed(
+        rng.random((15, 2)),
+        rng.integers(0, 3, size=(15, 1)),
+        rng.integers(0, 3, size=15),
+        nom_values,
+    )
+    sequential = run_kNN(train, test, k, euclidean, majority, never_retain)
+    assert sequential.predictions == kNNAlgorithm(train, test, k, euclidean, majority)
+    assert sequential.case_base_size == 20
+
+
+def test_retention_registry():
+    assert RETENTION == {
+        "never": never_retain,
+        "always": always_retain,
+        "different_class": different_class,
+        "oblivion_by_goodness": OblivionByGoodness(),
+    }
+
+
+@pytest.mark.parametrize(
+    ("retention", "expected_storage"),
+    [("never", 4), ("always", 6)],  # small_fold: 4 train cases, 2 test cases
+)
+def test_fit_predict_storage_is_final_case_base_size(small_fold, retention, expected_storage):
+    train, test = small_fold
+    result = KNN({"k": 1, "retention": retention}).fit_predict(train, test)
+    assert result.storage == expected_storage
+
+
+@pytest.mark.parametrize("retention", ["different_class", "oblivion_by_goodness"])
+def test_fit_predict_accepts_every_retention_name(small_fold, retention):
+    train, test = small_fold
+    result = KNN({"k": 1, "retention": retention}).fit_predict(train, test)
+    assert len(result.predictions) == 2
+    assert 4 <= result.storage <= 6  # between train only and train + test
+
+
+@pytest.fixture
+def og_fold():
+    no_nom_train = np.zeros((2, 0), dtype=int)
+    no_nom_test = np.zeros((3, 0), dtype=int)
+    train = make_preprocessed([[0.0], [1.0]], no_nom_train, [0, 1])
+    test = make_preprocessed([[0.2], [0.9], [0.95]], no_nom_test, [0, 0, 1])
+    return train, test
+
+
+def test_oblivion_by_goodness_hand_computed_sequence(og_fold):
+    # q0 -> A right (G_A 0.6); q1 -> B wrong (G_B 0.4, forgotten);
+    # q2 -> q1 wrong (G_q1 0.4, forgotten). Final case base: A, q0, q2.
+    train, test = og_fold
+    run = run_kNN(train, test, 1, euclidean, majority, OblivionByGoodness())
+    assert run.predictions == [0, 1, 0]
+    assert run.case_base_size == 3
+    # Same queries with AR keep everything: 2 train + 3 test.
+    assert run_kNN(train, test, 1, euclidean, majority, always_retain).case_base_size == 5
+
+
+def test_oblivion_by_goodness_never_leaves_fewer_than_k_cases():
+    # k=2 and both training cases are wrong for q0: both drop to 0.4, but deleting them
+    # would leave fewer than k cases, so they stay. q0 is then retained -> 3 cases.
+    no_nom = np.zeros((2, 0), dtype=int)
+    train = make_preprocessed([[0.0], [1.0]], no_nom, [0, 0])
+    test = make_preprocessed([[0.5]], np.zeros((1, 0), dtype=int), [1])
+    run = run_kNN(train, test, 2, euclidean, majority, OblivionByGoodness())
+    assert run.case_base_size == 3
