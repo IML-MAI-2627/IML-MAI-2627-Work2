@@ -44,8 +44,8 @@ Status: **decided** / **pending**.
     - *Why:* the codes are identical in every fold, and a value that appears only in the test fold
       still has a valid code. The header is part of the file definition, so it is not leakage. (decided)
 - **One-hot version for SVM, RF and for comparing nominal values in the kNN distances** (`Preprocessed.to_onehot()`).
-- *Why:* those methods would interpret integer codes as ordered quantities (a false order).
-      Our nominal attributes have no natural order (A/C/G/T, Male/Female): the integer codes
+    - *Why:* those methods would interpret integer codes as ordered quantities (a false order).
+    - Our nominal attributes have no natural order (A/C/G/T, Male/Female): the integer codes
       are only labels, and `OrdinalEncoder` is just the tool that assigns them. (decided)
 - **Width of the one-hot:** splice gives 287 columns (60 attributes; most have 4 values
   A/C/G/T, some also have the ambiguous codes D/N/S/R). vowel gives 12 (10 numeric + `Sex` x 2). (note)
@@ -401,8 +401,8 @@ Status: **decided** / **pending**.
   `kNNAlgorithm(train, test, k, distance_function, voting_function, retention_function=None)` in `src/knn_base.py` does the
   neighbour retrieval and voting. `KNN` in `src/models/knn.py` follows the same structure as `SVM` and
   `RandomForest` (`parse_params`, `prepare_data`, `fit_predict`), so `experiments/run.py`
-  (`--classifier knn`) runs it like any other model. `experiments/grid_search.py` does not include
-  the kNN yet; the kNN grid is issue #15.
+  (`--classifier knn`) runs it like any other model, and `experiments/grid_search.py --classifier knn`
+  runs the 96-configuration grid (see *Best kNN*).
     - *Why:* the assignment requires the name `kNNAlgorithm(...)`, and the runner needs the common
       `BaseClassifier` interface. `fit_predict` only calls `kNNAlgorithm`. (decided)
 - **Own code with numpy, no scikit-learn** in `knn_base.py`, `distances.py`, `voting.py`, `retention.py` and
@@ -420,9 +420,8 @@ Status: **decided** / **pending**.
   With `run.py`, each configuration is a separate `KNN` and each `fit_predict` computes the matrix
   again. The API also allows reuse: `nearest_neighbors(..., k_max=7)` once, then `predict` for
   K = 3, 5, 7 and every voting policy. (decided)
-    - *Planned for the grid (#15):* reuse the neighbours across K and voting to make the 96
-      configurations affordable. The `time` column must then stay comparable with SVM / RF (e.g.
-      charge each configuration the shared distance time plus its own voting time). (pending)
+    - *In the grid (#15)* every configuration is a separate run that computes its own matrix, so the
+      `time` column stays comparable with SVM / RF. The 96 configurations take about 10 minutes. (decided)
 - **Neighbour order is deterministic:** stable argsort, so ties in distance go to the lower training
   index. Voting policies receive neighbours ordered by `(distance, index)`. (decided)
 - **All distances must be finite and non-negative, and the matrix must have the right shape.**
@@ -430,8 +429,9 @@ Status: **decided** / **pending**.
 
 ### Parameters and validation (Fail-Fast philosophy, as in SVM / RF)
 
-- **Parameters: `k` (default 3), `distance` (default `euclidean`), `voting` (default `majority`).**
-  Unknown keys, a non-integer or non-positive `k` (including `"None"`), and unknown strategy names
+- **Parameters: `k` (default 3), `distance` (default `euclidean`), `voting` (default `majority`),
+  `retention` (default `never`).**
+    Unknown keys, a non-integer or non-positive `k` (including `"None"`), and unknown strategy names
   raise `ValueError`. Names are case-insensitive. Defaults are injected into `params` so they appear
   in the CSV. (decided)
 - **Strategies are selected by name** through the registries `DISTANCES` (`src/distances.py`),
@@ -442,10 +442,11 @@ Status: **decided** / **pending**.
 - **`prepare_data` validates and returns the `Preprocessed` folds unchanged** (non-empty, aligned).
   Unlike SVM / RF it does not build one matrix. `k <= n_train` is checked once, inside
   `nearest_neighbors`.
-    - *Why:* each distance chooses its own representation (`to_onehot()` for the numeric-only metrics,
-      `X_num` / `X_nom` for HEOM). The folds are cached by the runner, so they are never modified. (decided)
+    - *Why:* every distance reads `X_num` and compares nominal values through the one-hot columns
+      itself. The folds are cached by the runner, so they are never modified. (decided)
 - **No `random_state`:** the kNN is deterministic. (decided)
-- **`storage = len(train.y)`** (100%). Retention and reduction will report the retained count. (decided)
+- **`storage` is the size of the case base at the end of the test phase:** `len(train.y)` (100%)
+  without retention; more or less with AR, DF and OG (see *Retention*). (decided)
 
 ### Strategies included in this issue
 
@@ -460,7 +461,7 @@ Status: **decided** / **pending**.
     - *Why one-hot:* follows the pending proposal "nominals in Euclidean/Manhattan/Clark use the one-hot
       version"; integer codes would impose a false order. Every kNN metric now does the same
       (see *Distances* below). (decided)
-  - **`majority`:** most frequent class; **a tie goes to the tied class of the nearest neighbour**
+- **`majority`:** most frequent class; **a tie goes to the tied class of the nearest neighbour**
   (the first one in `(distance, index)` order). (decided)
 - **Sanity check:** 1-NN euclidean on vowel gives 0.9889 mean accuracy over the 10 folds, the same as
   the 1-NN check of the preprocessing (~98.9%). k=3 on splice gives 0.795 (baseline 0.52). (note)
@@ -501,15 +502,15 @@ Status: **decided** / **pending**.
 - **Canberra and Clark exaggerate small differences near 0.** They measure relative differences,
   and min-max scaling puts every attribute's train minimum at 0, so 0.05 vs 0.0 already gives the
   maximum term (1). (limitation)
-- **Which of Canberra / Clark enters the final 96-configuration grid.** The assignment asks for
-  one of them; Canberra has an unambiguous formula in Wilson & Martinez (1997). (pending)
+- **Canberra, not Clark, enters the 96-configuration grid.** The assignment asks for one of them;
+  Canberra has an unambiguous formula in Wilson & Martinez (1997). Clark stays available. (decided)
 - **heom** (Wilson & Martinez, 1997, section 2.3): numeric |x - y| / range, where range = 1 after
   our min-max scaling, plus overlap for nominal values. The "unknown -> 1" rule never applies
   because missing values are imputed first (see *Missing values*). (decided)
-- **On splice, with majority voting, all five metrics give identical predictions.** Every
-  attribute is nominal, so each metric is an increasing function of the number m of different
-  values (sqrt(2m), 2m, sqrt(m)) and picks the same k nearest neighbours. Only the
-  inverse-distance vote can differ, because it uses the distance values. (note)
+- **On splice, all metrics give identical predictions.** Every attribute is nominal, so each
+  metric is an increasing function of the number m of different values (sqrt(2m), 2m, sqrt(m))
+  and picks the same k nearest neighbours. With inverse distance the weights could differ, but in
+  the grid the four metrics agree fold by fold in all 24 configurations each. (note)
 
 ### Voting
 
@@ -613,6 +614,28 @@ Status: **decided** / **pending**.
   actually performing p-hacking. It cannot be avoided as we cannot divide the dataset into train-val-test and we are
   forced to do it this way.
 
+### Best kNN (issue #15)
+
+- **Grid: 96 configurations** = k {3, 5, 7} x distance {euclidean, manhattan, canberra, heom}
+  x voting {majority, inverse_distance} x retention {never, always, different_class,
+  oblivion_by_goodness}. Champions for the statistical tests: the best configuration of each
+  retention x voting pair (8 champions). (decided)
+- **Selection rule, fixed before looking at the winner:** among the configurations statistically
+  equivalent to the best one (the Nemenyi top group, or every champion when Friedman does not
+  reject), take the lowest storage, then the highest mean accuracy, then the first distance in
+  grid order.
+    - *Why:* without a significant accuracy difference, the cheaper model is preferred. (decided)
+- **Result:** vowel -> euclidean, k=3, inverse_distance, never (0.976, storage 100%; Friedman
+  p = 0.81, all champions equivalent). splice -> euclidean, k=7, inverse_distance,
+  oblivion_by_goodness (0.844, storage 89.7%): best mean rank, best accuracy and lowest storage
+  of the Nemenyi top group. (decided)
+- **k works in opposite directions:** accuracy falls with k on vowel (near-duplicate repetitions
+  of the same speaker) and rises with k on splice (noisy attributes). (note)
+- **OG acts like an editing method on splice:** it forgets more cases than it retains (final
+  case base 89.7% of the train) and improves accuracy. On vowel it does not help. (note)
+- **The champions are chosen on the same 10 folds used for the tests**, so the selected
+  configuration's accuracy is an optimistic estimate (selection bias). (limitation)
+-
 ---
 
 ## Methods and libraries used
@@ -677,6 +700,5 @@ Not used (on purpose):
 | Topic                                    | Proposal                                                                                  | Needs                                   |
 |------------------------------------------|-------------------------------------------------------------------------------------------|-----------------------------------------|
 | Distance chosen as "one you may choose"  | HEOM, implemented (no train statistics needed)                                            | Team confirmation (#8)                  |
-| Canberra or Clark in the final grid      | Canberra (unambiguous formula in Wilson & Martinez, 1997); both are implemented           | Team decision (#7, #15)                 |
 | OG parameters                            | Initial goodness 0.5, alpha 0.2, threshold 0.5 (issue #11); one wrong retrieval forgets a case | Check the assignment description (#11)  |
 | vowel columns                            | See "Dropped columns" (A/B/C comparison)                                                  | The kNN exists: run the comparison      |
