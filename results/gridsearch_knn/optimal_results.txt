@@ -1,0 +1,28 @@
+OPTIMAL HYPERPARAMETERS & STATISTICAL ANALYSIS
+==============================================
+
+Dataset: SPLICE | Model: KNN
+  Best Mean Accuracy Config: kNN[distance=canberra;k=7;retention=oblivion_by_goodness;voting=inverse_distance]
+  Mean Accuracy:        0.8439
+  Mean Time/Fold:       0.0911 seconds
+  Total Configs Tested: 96
+  Champions Extracted:  8 (Used for Statistical Testing)
+  Friedman p-value:     5.0237e-05
+  -> Significant differences found among champions. Running Nemenyi...
+  -> CD Diagram saved to: cd_diagram_splice_knn_champions.png
+  Statistically Top Group (Equivalent to kNN[distance=canberra;k=7;retention=oblivion_by_goodness;voting=inverse_distance]):
+    * kNN[distance=canberra;k=7;retention=oblivion_by_goodness;voting=inverse_distance] (Mean Rank: 2.15)
+    * kNN[distance=euclidean;k=7;retention=oblivion_by_goodness;voting=majority] (Mean Rank: 2.75)
+    * kNN[distance=heom;k=7;retention=different_class;voting=inverse_distance] (Mean Rank: 4.00)
+    * kNN[distance=euclidean;k=7;retention=never;voting=inverse_distance] (Mean Rank: 4.15)
+    * kNN[distance=canberra;k=7;retention=always;voting=inverse_distance] (Mean Rank: 5.00)
+--------------------------------------------------------------------------------
+
+Dataset: VOWEL | Model: KNN
+  Best Mean Accuracy Config: kNN[distance=euclidean;k=3;retention=always;voting=inverse_distance]
+  Mean Accuracy:        0.9788
+  Mean Time/Fold:       0.0123 seconds
+  Total Configs Tested: 96
+  Champions Extracted:  8 (Used for Statistical Testing)
+  Friedman p-value:     8.0688e-01
+--------------------------------------------------------------------------------

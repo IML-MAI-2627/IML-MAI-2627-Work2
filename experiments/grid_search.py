@@ -34,6 +34,12 @@ GRIDS = {
         "max_iter": [-1],
         "degree": [2, 3, 5],
     },
+    "knn": {
+        "k": [3, 5, 7],
+        "distance": ["euclidean", "manhattan", "canberra", "heom"],
+        "voting": ["majority", "inverse_distance"],
+        "retention": ["never", "always", "different_class", "oblivion_by_goodness"],
+    },
 }
 
 
@@ -168,6 +174,10 @@ TOP_COMBINATIONS = {
     "svm": {
         "kernel": ["linear", "rbf", "poly"],
         "class_weight": ["None", "balanced"],
+    },
+    "knn": {
+        "retention": ["never", "always", "different_class", "oblivion_by_goodness"],
+        "voting": ["majority", "inverse_distance"],
     },
 }
 
@@ -417,7 +427,7 @@ def evaluate_results(out_dir: Path):
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Manual Grid Search CV for hyperparameter tuning.")
     parser.add_argument("--dataset", choices=["vowel", "splice", "all"], default="all")
-    parser.add_argument("--classifier", choices=["rf", "svm", "all"], default="all")
+    parser.add_argument("--classifier", choices=["rf", "svm", "knn", "all"], default="all")
     parser.add_argument("--out", type=Path, default=Path("results/gridsearch"))
 
     args = parser.parse_args(argv)
@@ -425,7 +435,7 @@ def main(argv: list[str] | None = None) -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     datasets = ["vowel", "splice"] if args.dataset == "all" else [args.dataset]
-    models = ["rf", "svm"] if args.classifier == "all" else [args.classifier]
+    models = ["rf", "svm", "knn"] if args.classifier == "all" else [args.classifier]
 
     # 1. Run all combinations
     run_grid_search(datasets, models, args.out)
