@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from knn_base import DistanceFunction
+from models.knn.knn_base import DistanceFunction
 from preprocessing import Preprocessed
 
 
@@ -21,7 +21,9 @@ def _nominal_mismatches(train: Preprocessed, test: Preprocessed) -> np.ndarray:
     (n_test, n_train, n_onehot) array (~2 GB on splice).
     """
     n_num, n_nom = train.X_num.shape[1], train.X_nom.shape[1]
+    # (n_test, n_train) with number of matches in each position
     matches = test.to_onehot()[:, n_num:] @ train.to_onehot()[:, n_num:].T
+    # (n_test, n_train) with number of mismatched
     return n_nom - matches
 
 

@@ -1,12 +1,12 @@
 """kNN classifier adapter: runs ``kNNAlgorithm`` through the common ``BaseClassifier`` interface."""
 
-from distances import DISTANCES
 from experiment_runner import ClassificationResult
-from knn_base import check_k, run_kNN
 from models.classifier_base import BaseClassifier
+from models.knn.distances import DISTANCES
+from models.knn.knn_base import check_k, run_kNN
+from models.knn.retention import RETENTION
+from models.knn.voting import VOTING
 from preprocessing import Preprocessed
-from retention import RETENTION
-from voting import VOTING
 
 default_params = {
     "k": 3,

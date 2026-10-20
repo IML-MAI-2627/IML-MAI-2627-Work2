@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 import config
-from knn_base import (
+from models.knn.knn_base import (
     Neighbor,
     check_k,
     kNNAlgorithm,

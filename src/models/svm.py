@@ -3,7 +3,7 @@ from sklearn.svm import SVC
 
 import config
 from experiment_runner import ClassificationResult
-from models import BaseClassifier
+from models.classifier_base import BaseClassifier
 from preprocessing import Preprocessed
 
 default_params = {

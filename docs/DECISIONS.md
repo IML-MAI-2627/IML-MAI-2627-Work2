@@ -393,13 +393,13 @@ Status: **decided** / **pending**.
       codes would create false distances and orderings between nominal values (e.g., A/C/G/T). One-hot encoding ensures
       orthogonal geometric distances between categories. (decided)
 
-## kNN (issue #6, `src/knn_base.py`, `src/models/knn.py`)
+## kNN (issue #6, `../src/models/knn/knn_base.py`, `../src/models/knn/knn.py`)
 
 ### Structure
 
 - **Two layers: `kNNAlgorithm(...)` is the algorithm, `KNN(BaseClassifier)` is the adapter.**
-  `kNNAlgorithm(train, test, k, distance_function, voting_function)` in `src/knn_base.py` does the
-  neighbour retrieval and voting. `KNN` in `src/models/knn.py` follows the same structure as `SVM` and
+  `kNNAlgorithm(train, test, k, distance_function, voting_function)` in `../src/models/knn/knn_base.py` does the
+  neighbour retrieval and voting. `KNN` in `../src/models/knn/knn.py` follows the same structure as `SVM` and
   `RandomForest` (`parse_params`, `prepare_data`, `fit_predict`), so `experiments/run.py`
   (`--classifier knn`) runs it like any other model. `experiments/grid_search.py` does not include
   the kNN yet; the kNN grid is issue #15.
@@ -434,8 +434,8 @@ Status: **decided** / **pending**.
   Unknown keys, a non-integer or non-positive `k` (including `"None"`), and unknown strategy names
   raise `ValueError`. Names are case-insensitive. Defaults are injected into `params` so they appear
   in the CSV. (decided)
-- **Strategies are selected by name** through the registries `DISTANCES` (`src/distances.py`) and
-  `VOTING` (`src/voting.py`). `self.params` keeps only the names; the callables are looked up in
+- **Strategies are selected by name** through the registries `DISTANCES` (`../src/models/knn/distances.py`) and
+  `VOTING` (`../src/models/knn/voting.py`). `self.params` keeps only the names; the callables are looked up in
   `fit_predict`.
     - *Why:* the CLI passes strings, and the CSV `params` column must show readable names, not
       `<function ...>`. (decided)
@@ -578,10 +578,10 @@ Status: **decided** / **pending**.
 | Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                                     | `src/experiment_runner.py`            |
 | Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                                        | `src/models/random_forest.py`         |
 | Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                                                | `src/models/svm.py`                   |
-| kNN                                  | `kNNAlgorithm`: one vectorised distance matrix, stable argsort, injected distance and voting                        | Own code + `numpy`                                                                               | `src/knn_base.py`                     |
-| kNN adapter                          | `KNN(BaseClassifier)`, strategies selected by name                                                                  | Own code                                                                                         | `src/models/knn.py`                   |
-| kNN distances                        | Euclidean on the one-hot representation (registry `DISTANCES`)                                                      | Own code + `numpy`                                                                               | `src/distances.py`                    |
-| kNN voting                           | Majority, tie goes to the nearest tied neighbour (registry `VOTING`)                                                | Own code (`collections.Counter`)                                                                 | `src/voting.py`                       |
+| kNN                                  | `kNNAlgorithm`: one vectorised distance matrix, stable argsort, injected distance and voting                        | Own code + `numpy`                                                                               | `../src/models/knn/knn_base.py`                     |
+| kNN adapter                          | `KNN(BaseClassifier)`, strategies selected by name                                                                  | Own code                                                                                         | `../src/models/knn/knn.py`                   |
+| kNN distances                        | Euclidean on the one-hot representation (registry `DISTANCES`)                                                      | Own code + `numpy`                                                                               | `../src/models/knn/distances.py`                    |
+| kNN voting                           | Majority, tie goes to the nearest tied neighbour (registry `VOTING`)                                                | Own code (`collections.Counter`)                                                                 | `../src/models/knn/voting.py`                       |
 | Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `src/experiments/grid_search.py`      |
 | Grid Search                          | Extracting optimal models using grid_search and applying the statistical tests                                      | Own code                                                                                         | `src/experiments/grid_search.py`      |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |

@@ -1,6 +1,15 @@
 OPTIMAL HYPERPARAMETERS & STATISTICAL ANALYSIS
 ==============================================
 
+Dataset: VOWEL | Model: KNN
+  Best Mean Accuracy Config: kNN[distance=heom;k=3;retention=always;voting=inverse_distance]
+  Mean Accuracy:        0.9788
+  Mean Time/Fold:       0.0063 seconds
+  Total Configs Tested: 120
+  Champions Extracted:  8 (Used for Statistical Testing)
+  Friedman p-value:     8.0688e-01
+--------------------------------------------------------------------------------
+
 Dataset: VOWEL | Model: RANDOM FOREST
   Best Mean Accuracy Config: Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=1;n_estimators=200;n_jobs=-1;random_state=42]
   Mean Accuracy:        0.9798
@@ -38,6 +47,23 @@ CROSS-MODEL HEAD-TO-HEAD: VOWEL
   -> Significant difference. Winner: Support Vector Machine[C=3.0;class_weight=None;coef0=-0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]
 ================================================================================
 
+Dataset: SPLICE | Model: KNN
+  Best Mean Accuracy Config: kNN[distance=clark;k=7;retention=oblivion_by_goodness;voting=inverse_distance]
+  Mean Accuracy:        0.8439
+  Mean Time/Fold:       0.0780 seconds
+  Total Configs Tested: 120
+  Champions Extracted:  8 (Used for Statistical Testing)
+  Friedman p-value:     5.0237e-05
+  -> Significant differences found among champions. Running Nemenyi...
+  -> CD Diagram saved to: cd_diagram_splice_knn_champions.png
+  Statistically Top Group (Equivalent to kNN[distance=clark;k=7;retention=oblivion_by_goodness;voting=inverse_distance]):
+    * kNN[distance=clark;k=7;retention=oblivion_by_goodness;voting=inverse_distance] (Mean Rank: 2.15)
+    * kNN[distance=clark;k=7;retention=oblivion_by_goodness;voting=majority] (Mean Rank: 2.75)
+    * kNN[distance=canberra;k=7;retention=different_class;voting=inverse_distance] (Mean Rank: 4.00)
+    * kNN[distance=clark;k=7;retention=never;voting=inverse_distance] (Mean Rank: 4.15)
+    * kNN[distance=euclidean;k=7;retention=always;voting=inverse_distance] (Mean Rank: 5.00)
+--------------------------------------------------------------------------------
+
 Dataset: SPLICE | Model: RANDOM FOREST
   Best Mean Accuracy Config: Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=2;n_estimators=200;n_jobs=-1;random_state=42]
   Mean Accuracy:        0.9690
@@ -67,10 +93,3 @@ Dataset: SPLICE | Model: SUPPORT VECTOR MACHINE
     * Support Vector Machine[C=1.0;class_weight=None;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 2.95)
     * Support Vector Machine[C=3.0;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001] (Mean Rank: 3.30)
 --------------------------------------------------------------------------------
-
-CROSS-MODEL HEAD-TO-HEAD: SPLICE
-  Model 1: Random Forest[criterion=entropy;max_depth=None;max_features=sqrt;min_samples_leaf=2;n_estimators=200;n_jobs=-1;random_state=42]
-  Model 2: Support Vector Machine[C=0.1;class_weight=None;coef0=0.5;degree=5;gamma=scale;kernel=poly;max_iter=-1;random_state=42;tol=0.001]
-  Wilcoxon p-value:     9.6094e-01
-  -> No significant difference between the absolute best models.
-================================================================================

@@ -7,7 +7,7 @@ in ``RETENTION`` so they can be selected by name.
 
 from __future__ import annotations
 
-from knn_base import OblivionByGoodness, RetentionFunction
+from models.knn.knn_base import OblivionByGoodness, RetentionFunction
 
 
 def never_retain(prediction: int, label: int) -> bool:

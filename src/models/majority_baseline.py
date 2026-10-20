@@ -1,7 +1,7 @@
 import numpy as np
 
 from experiment_runner import ClassificationResult
-from models import BaseClassifier
+from models.classifier_base import BaseClassifier
 from preprocessing import Preprocessed
 
 

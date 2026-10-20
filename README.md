@@ -129,14 +129,14 @@ These parameters are passed as optional flags. If omitted, the model will fall b
         ```bash
         python experiments/run.py --dataset splice --classifier svm --C 1.5 --max_iter 1000
         ```
-- k-Nearest Neighbours (`--classifier knn`), own implementation (`kNNAlgorithm` in `src/knn_base.py`)
+- k-Nearest Neighbours (`--classifier knn`), own implementation (`kNNAlgorithm` in `src/models/knn/knn_base.py`)
 
     - `--k` (positive integer): Number of neighbours. Default: 3.
 
-    - `--distance` (string): Distance function, selected by name from `DISTANCES` in `src/distances.py`.
+    - `--distance` (string): Distance function, selected by name from `DISTANCES` in `src/models/knn/distances.py`.
       Currently: `euclidean` (on the one-hot representation). Default: `euclidean`.
 
-    - `--voting` (string): Voting policy, selected by name from `VOTING` in `src/voting.py`.
+    - `--voting` (string): Voting policy, selected by name from `VOTING` in `src/models/knn/voting.py`.
       Currently: `majority` (ties go to the class of the nearest tied neighbour). Default: `majority`.
 
       Example:

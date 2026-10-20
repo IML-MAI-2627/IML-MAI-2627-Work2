@@ -5,13 +5,13 @@ import pytest
 from sklearn.neighbors import KNeighborsClassifier
 
 import config
-from distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from experiment_runner import ClassificationResult
-from knn_base import Neighbor, OblivionByGoodness, kNNAlgorithm, run_kNN
-from models.knn import KNN, default_params
+from models.knn.distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
+from models.knn.knn import KNN, default_params
+from models.knn.knn_base import Neighbor, OblivionByGoodness, kNNAlgorithm, run_kNN
+from models.knn.retention import RETENTION, always_retain, different_class, never_retain
+from models.knn.voting import VOTING, inverse_distance, majority
 from preprocessing import Preprocessed, preprocess_fold
-from retention import RETENTION, always_retain, different_class, never_retain
-from voting import VOTING, inverse_distance, majority
 
 
 def make_preprocessed(X_num, X_nom, labels, nom_values=None) -> Preprocessed:
