@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 
-from models.knn.knn_base import Neighbor, VotingFunction
+from models.knn.knn_utils import Neighbor, VotingFunction
 
 
 def majority(neighbors: Sequence[Neighbor]) -> int:

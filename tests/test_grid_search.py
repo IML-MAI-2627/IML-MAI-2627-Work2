@@ -94,6 +94,24 @@ def test_prune_params_rf():
     assert pruned_rf == rf_params
 
 
+def test_prune_params_knn():
+    """Tests if inactive reduction parameters are properly pruned for kNN."""
+    drop_params = {"k": 3, "reduction": "drop", "version": 3, "threshold": 0.5}
+    pruned_drop = grid_search.prune_params("knn", drop_params)
+    assert pruned_drop["version"] == 3
+    assert "threshold" not in pruned_drop
+
+    eenth_params = {"k": 3, "reduction": "eenth", "version": 2, "threshold": 0.6}
+    pruned_eenth = grid_search.prune_params("knn", eenth_params)
+    assert pruned_eenth["threshold"] == 0.6
+    assert "version" not in pruned_eenth
+
+    none_params = {"k": 3, "reduction": "none", "version": 3, "threshold": 0.6}
+    pruned_none = grid_search.prune_params("knn", none_params)
+    assert "version" not in pruned_none
+    assert "threshold" not in pruned_none
+
+
 # ---------------------------------------------------------
 # 3. Unit Tests: Execution Phase (Mocked)
 # ---------------------------------------------------------

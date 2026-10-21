@@ -68,6 +68,15 @@ def prune_params(model, params):
             p.pop("degree", None)
         if kernel not in ["poly", "sigmoid"]:
             p.pop("coef0", None)
+    elif model == "knn":
+        reduction = p.get("reduction", "none")
+        if reduction == "none":
+            p.pop("version", None)
+            p.pop("threshold", None)
+        elif reduction in ("fcnn", "drop"):
+            p.pop("threshold", None)
+        elif reduction == "eenth":
+            p.pop("version", None)
     return p
 
 

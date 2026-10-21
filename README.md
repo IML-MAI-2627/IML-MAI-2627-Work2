@@ -20,6 +20,16 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## Running the tests
+
+All unit and integration tests are written for **`pytest`** (using pytest fixtures and parameterized test functions). Run the full test suite using:
+
+```bash
+pytest
+```
+
+> **Note**: Do not use `python -m unittest discover`, as `unittest` only recognizes `unittest.TestCase` subclasses and will discover 0 tests. Always run tests using `pytest`.
+
 ## Running the experiments
 
 Experiments use the predefined 10-fold train/test splits provided in
@@ -129,20 +139,65 @@ These parameters are passed as optional flags. If omitted, the model will fall b
         ```bash
         python experiments/run.py --dataset splice --classifier svm --C 1.5 --max_iter 1000
         ```
-- k-Nearest Neighbours (`--classifier knn`), own implementation (`kNNAlgorithm` in `src/models/knn/knn_base.py`)
+- k-Nearest Neighbours (`--classifier knn`), own implementation (`run_kNN` in `src/models/knn/knn_utils.py`)
 
     - `--k` (positive integer): Number of neighbours. Default: 3.
 
-    - `--distance` (string): Distance function, selected by name from `DISTANCES` in `src/models/knn/distances.py`.
-      Currently: `euclidean` (on the one-hot representation). Default: `euclidean`.
+    - `--distance` (string): Metric for neighbor evaluation, selected from `DISTANCES` in `src/models/knn/distances.py`.
+      Supports single-parameter calls exploiting symmetry via `np.triu_indices` (cutting operations and peak memory by 50%).
+      Must be one of:
+      - `euclidean`: Minkowski $r=2$ with nominal overlap on one-hot representation.
+      - `manhattan`: Minkowski $r=1$ with nominal overlap on one-hot representation.
+      - `canberra`: Relative difference metric with nominal overlap.
+      - `clark`: Squared relative difference metric with nominal overlap.
+      - `heom`: Heterogeneous Euclidean-Overlap Metric (Wilson & Martinez, 1997).
+      Default: `euclidean`.
 
-    - `--voting` (string): Voting policy, selected by name from `VOTING` in `src/models/knn/voting.py`.
-      Currently: `majority` (ties go to the class of the nearest tied neighbour). Default: `majority`.
+    - `--voting` (string): Voting policy, selected from `VOTING` in `src/models/knn/voting.py`.
+      Must be one of:
+      - `majority`: Standard majority vote (ties go to the nearest tied neighbor).
+      - `inverse_distance`: Distance-weighted voting with epsilon smoothing for identical instances.
+      Default: `majority`.
 
-      Example:
-        ```bash
-        python experiments/run.py --dataset vowel --classifier knn --k 5 --distance euclidean --voting majority
-        ```
+    - `--retention` (string): Dynamic case-base retention policy during testing, selected from `RETENTION` in `src/models/knn/retention.py`.
+      Must be one of:
+      - `never`: Static case base; standard batch classification across folds.
+      - `always`: Retains every evaluated test case.
+      - `different_class`: Retains test cases only when the prediction does not match the true class.
+      - `oblivion_by_goodness`: Neighbor-tracked reinforcement learning retention with threshold-based forgetting (`min_cases=k`).
+      Default: `never`.
+
+    - `--reduction` (string): Training set instance reduction technique, selected from `REDUCTION_TECHNIQUES` in `src/models/knn/reduction.py`.
+      Must be one of:
+      - `none`: Use the full training set without reduction.
+      - `fcnn`: Fast Condensed Nearest Neighbor (Angiulli, 2007). Guaranteed training-set consistent.
+      - `eenth`: Extended Edited Nearest Neighbor with Threshold (Wilson & Martinez, 2000). Removes noisy/border instances.
+      - `drop`: Decremental Reduction Optimization Procedure (Wilson & Martinez, 2000). Prunes internal and noisy prototypes.
+      Default: `none`.
+
+    - `--version` (integer): Version rule/variant. Exclusive to `--reduction fcnn` and `--reduction drop`:
+      - For `fcnn`: `1` (Centroid rule), `2` (Nearest enemy rule), `3` (Furthest enemy rule), `4` (Random enemy rule). Default: 1.
+      - For `drop`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN filtering), `4` (DROP4), `5` (DROP5). Default: 3.
+      *(Incompatible with `--reduction eenth` or `--reduction none`)*.
+
+    - `--threshold` (float): Pruning acceptance threshold $\in [0, 1]$. Exclusive to `--reduction eenth`:
+      - Instances are pruned if the consensus among their $k$ nearest neighbors is below this threshold. Default: 0.0.
+      *(Incompatible with `--reduction fcnn`, `--reduction drop`, or `--reduction none`)*.
+
+    Examples:
+    ```bash
+    # Standard batch kNN with Canberra distance and inverse distance voting
+    python experiments/run.py --dataset vowel --classifier knn --k 5 --distance canberra --voting inverse_distance
+
+    # kNN with DROP3 reduction (retains boundary instances, cuts storage)
+    python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction drop --version 3
+
+    # kNN with FCNN rule 2 (nearest enemy) and dynamic Oblivion by Goodness retention
+    python experiments/run.py --dataset splice --classifier knn --k 3 --reduction fcnn --version 2 --retention oblivion_by_goodness
+
+    # kNN with EENTh filtering at threshold 0.6
+    python experiments/run.py --dataset vowel --classifier knn --k 5 --reduction eenth --threshold 0.6
+    ```
 
 The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
 Use `--out <path>` to select another destination.

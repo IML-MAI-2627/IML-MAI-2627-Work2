@@ -1,24 +1,18 @@
-"""Tests for instance reduction algorithms: FCNN, EENTh, and DROP variants."""
+"""Tests for instance reduction algorithms: FCNN, EENTh, and DROP."""
 
 import numpy as np
 import pytest
 
 from models.knn.distances import euclidean, manhattan
+from models.knn.knn import KNN
 from models.knn.reduction import (
     REDUCTION_TECHNIQUES,
     InstanceReduction,
     ReductionResult,
     drop,
-    drop1,
-    drop2,
-    drop3,
-    drop4,
-    drop5,
     eenth,
     fcnn,
     reduce_dataset,
-    wilson_prob,
-    wilson_th,
 )
 from models.knn.voting import inverse_distance
 from preprocessing import Preprocessed
@@ -81,7 +75,7 @@ def multiclass_data():
 
 def test_fcnn_consistency_theorem(synthetic_clusters):
     """Theorem 3.1: S computed by FCNN is guaranteed to be 100% training-set consistent."""
-    result = fcnn(synthetic_clusters, distance="euclidean", variant="fcnn1")
+    result = fcnn(synthetic_clusters, distance="euclidean", version=1)
     assert isinstance(result, ReductionResult)
     assert result.n_retained < result.n_original
     assert result.reduction_rate > 0.3
@@ -93,13 +87,12 @@ def test_fcnn_consistency_theorem(synthetic_clusters):
     assert np.all(preds == synthetic_clusters.y_codes), "FCNN must be training-set consistent"
 
 
-@pytest.mark.parametrize("variant", ["fcnn1", "fcnn2", "fcnn3", "fcnn4"])
-def test_fcnn_variants(multiclass_data, variant):
-    """All FCNN variants (1..4) converge and yield valid consistent subsets."""
-    res = fcnn(multiclass_data, variant=variant, distance="euclidean")
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
+def test_fcnn_versions(multiclass_data, version):
+    """All FCNN versions (1..4) converge and yield valid consistent subsets."""
+    res = fcnn(multiclass_data, version=version, distance="euclidean")
     assert res.n_retained > 0
     assert res.n_retained <= res.n_original
-    # Retains at least one instance per class
     retained_classes = np.unique(res.data.y_codes)
     assert len(retained_classes) == 3
 
@@ -112,8 +105,8 @@ def test_fcnn_k_consistency(multiclass_data):
 
 def test_fcnn_order_independence(multiclass_data):
     """FCNN must return the exact same indices regardless of repeated invocations."""
-    res1 = fcnn(multiclass_data, variant="fcnn1")
-    res2 = fcnn(multiclass_data, variant="fcnn1")
+    res1 = fcnn(multiclass_data, version=1)
+    res2 = fcnn(multiclass_data, version=1)
     assert np.array_equal(res1.indices, res2.indices)
 
 
@@ -133,18 +126,11 @@ def test_eenth_removes_outliers(synthetic_clusters):
 
 def test_eenth_threshold_monotonicity(synthetic_clusters):
     """Higher threshold eliminates equal or more border instances."""
-    res_prob = wilson_prob(synthetic_clusters, k=3)
+    res_prob = eenth(synthetic_clusters, k=3, threshold=0.0)
     res_th6 = eenth(synthetic_clusters, k=3, threshold=0.6)
     res_th8 = eenth(synthetic_clusters, k=3, threshold=0.8)
 
     assert res_prob.n_retained >= res_th6.n_retained >= res_th8.n_retained
-
-
-def test_wilson_th_alias(synthetic_clusters):
-    """wilson_th and eenth yield identical results."""
-    res1 = eenth(synthetic_clusters, threshold=0.75, k=3)
-    res2 = wilson_th(synthetic_clusters, threshold=0.75, k=3)
-    assert np.array_equal(res1.indices, res2.indices)
 
 
 # ---------------------------------------------------------------------------
@@ -153,15 +139,15 @@ def test_wilson_th_alias(synthetic_clusters):
 
 
 def test_drop3_filters_noise_and_reduces(synthetic_clusters):
-    """DROP3 removes noise via ENN and prunes internal instances."""
-    res = drop3(synthetic_clusters, k=3, distance="euclidean", voting="majority")
+    """DROP version 3 removes noise via ENN and prunes internal instances."""
+    res = drop(synthetic_clusters, version=3, k=3, distance="euclidean", voting="majority")
     assert isinstance(res, ReductionResult)
     # Both outliers should be pruned
     assert 80 not in res.indices
     assert 81 not in res.indices
     # High reduction rate while keeping border prototypes
     assert res.reduction_rate > 0.4
-    assert res.n_retained >= 4  # Keeps instances of each class
+    assert res.n_retained >= 4
 
 
 @pytest.mark.parametrize("version", [1, 2, 3, 4, 5])
@@ -170,24 +156,13 @@ def test_all_drop_versions(multiclass_data, version):
     res = drop(multiclass_data, version=version, k=3, distance="euclidean")
     assert res.n_retained > 0
     assert res.n_retained < res.n_original
-    # Retains all 3 classes
     assert len(np.unique(res.data.y_codes)) == 3
-
-
-@pytest.mark.parametrize(
-    "func",
-    [drop1, drop2, drop3, drop4, drop5],
-)
-def test_drop_convenience_functions(multiclass_data, func):
-    """Direct convenience functions drop1..drop5 match drop(version=...)."""
-    res = func(multiclass_data, k=3)
-    assert res.n_retained > 0
 
 
 def test_drop_with_custom_voting(synthetic_clusters):
     """DROP supports alternative voting schemes (e.g. inverse_distance)."""
-    res_maj = drop3(synthetic_clusters, voting="majority", k=3)
-    res_inv = drop3(synthetic_clusters, voting=inverse_distance, k=3)
+    res_maj = drop(synthetic_clusters, version=3, voting="majority", k=3)
+    res_inv = drop(synthetic_clusters, version=3, voting=inverse_distance, k=3)
     assert res_maj.n_retained > 0
     assert res_inv.n_retained > 0
 
@@ -199,10 +174,58 @@ def test_drop_with_custom_voting(synthetic_clusters):
 
 def test_instance_reduction_class_fit_transform(multiclass_data):
     """InstanceReduction OOP wrapper conforms to transformer pattern."""
-    reducer = InstanceReduction(method="drop3", distance="euclidean", k=3)
+    reducer = InstanceReduction("drop", version=3, distance="euclidean", k=3)
     reduced = reducer.fit_transform(multiclass_data)
     assert isinstance(reduced, Preprocessed)
     assert len(reduced.y_codes) < len(multiclass_data.y_codes)
+
+
+def test_instance_reduction_param_validation():
+    """InstanceReduction validates and accepts reduction-specific parameters."""
+    # FCNN accepts version
+    params_fcnn = {"reduction": "fcnn", "version": 2}
+    ir_fcnn = InstanceReduction(params_fcnn)
+    assert ir_fcnn.method == "fcnn"
+    assert ir_fcnn.version == 2
+    assert params_fcnn["version"] == 2
+
+    # DROP accepts version
+    params_drop = {"reduction": "drop", "version": 4}
+    ir_drop = InstanceReduction(params_drop)
+    assert ir_drop.method == "drop"
+    assert ir_drop.version == 4
+    assert params_drop["version"] == 4
+
+    # EENTh accepts threshold
+    params_eenth = {"reduction": "eenth", "threshold": 0.7}
+    ir_eenth = InstanceReduction(params_eenth)
+    assert ir_eenth.method == "eenth"
+    assert ir_eenth.threshold == 0.7
+    assert params_eenth["threshold"] == 0.7
+
+    # None accepts neither
+    params_none = {"reduction": "none"}
+    ir_none = InstanceReduction(params_none)
+    assert ir_none.method == "none"
+
+
+def test_instance_reduction_rejects_incompatible_params():
+    """InstanceReduction raises ValueError on parameters incompatible with the chosen method."""
+    with pytest.raises(ValueError, match="Unknown parameter 'threshold' for FCNN"):
+        InstanceReduction({"reduction": "fcnn", "version": 2, "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'threshold' for DROP"):
+        InstanceReduction({"reduction": "drop", "version": 4, "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
+        InstanceReduction({"reduction": "eenth", "threshold": 0.7, "version": 2})
+
+    err_none = "are not allowed when reduction is 'none'"
+    with pytest.raises(ValueError, match=err_none):
+        InstanceReduction({"reduction": "none", "version": 3})
+
+    with pytest.raises(ValueError, match=err_none):
+        InstanceReduction({"reduction": "none", "threshold": 0.8})
 
 
 def test_reduce_dataset_function(multiclass_data):
@@ -212,30 +235,26 @@ def test_reduce_dataset_function(multiclass_data):
     assert res.n_retained > 0
 
 
-def test_reduction_with_raw_numpy_arrays():
-    """Methods accept raw (X, y) NumPy arrays and return (X_red, y_red)."""
-    rng = np.random.RandomState(99)
-    X = rng.randn(50, 4)
-    y = np.array([0] * 25 + [1] * 25)
+def test_reduction_returns_preprocessed_object(synthetic_clusters):
+    """Reduction results contain a valid filtered Preprocessed object."""
+    res_fcnn = fcnn(synthetic_clusters)
+    assert isinstance(res_fcnn.data, Preprocessed)
+    assert len(res_fcnn.data.y_codes) == res_fcnn.n_retained
 
-    res_fcnn = fcnn((X, y))
-    assert isinstance(res_fcnn.data, tuple)
-    X_red, y_red = res_fcnn.data
-    assert len(X_red) == res_fcnn.n_retained
-    assert len(y_red) == res_fcnn.n_retained
+    res_eenth = eenth(synthetic_clusters, threshold=0.6)
+    assert isinstance(res_eenth.data, Preprocessed)
+    assert len(res_eenth.data.y_codes) == res_eenth.n_retained
 
-    res_eenth = eenth(X, y=y, threshold=0.6)
-    assert res_eenth.n_retained > 0
-
-    res_drop = drop3((X, y))
-    assert res_drop.n_retained > 0
+    res_drop = drop(synthetic_clusters, version=3)
+    assert isinstance(res_drop.data, Preprocessed)
+    assert len(res_drop.data.y_codes) == res_drop.n_retained
 
 
 def test_reduction_with_different_distances(multiclass_data):
     """Reduction techniques support various metrics (manhattan, canberra, callable)."""
     res_man = fcnn(multiclass_data, distance=manhattan)
     res_can = eenth(multiclass_data, distance="canberra")
-    res_drop = drop3(multiclass_data, distance="manhattan")
+    res_drop = drop(multiclass_data, version=3, distance="manhattan")
 
     assert res_man.n_retained > 0
     assert res_can.n_retained > 0
@@ -243,24 +262,8 @@ def test_reduction_with_different_distances(multiclass_data):
 
 
 def test_reduction_registry():
-    """REDUCTION_TECHNIQUES contains all expected algorithms."""
-    expected = {
-        "fcnn",
-        "fcnn1",
-        "fcnn2",
-        "fcnn3",
-        "fcnn4",
-        "eenth",
-        "wilson_th",
-        "wilson_prob",
-        "drop",
-        "drop1",
-        "drop2",
-        "drop3",
-        "drop4",
-        "drop5",
-    }
-    assert expected.issubset(set(REDUCTION_TECHNIQUES.keys()))
+    """REDUCTION_TECHNIQUES contains only expected methods."""
+    assert set(REDUCTION_TECHNIQUES.keys()) == {"fcnn", "eenth", "drop"}
 
 
 # ---------------------------------------------------------------------------
@@ -270,23 +273,78 @@ def test_reduction_registry():
 
 def test_invalid_parameters():
     """Check validation of invalid configuration parameters."""
-    X = np.ones((10, 2))
-    y = np.zeros(10)
+    dummy = make_preprocessed(np.ones((10, 2)), np.zeros(10))
+    empty = make_preprocessed(np.empty((0, 2)), np.empty(0))
 
     with pytest.raises(ValueError, match="Unknown distance"):
-        fcnn((X, y), distance="nonexistent_distance")
+        fcnn(dummy, distance="nonexistent_distance")
 
     with pytest.raises(ValueError, match="Unknown voting"):
-        drop3((X, y), voting="invalid_voting")
+        drop(dummy, voting="invalid_voting")
 
-    with pytest.raises(ValueError, match="Unknown variant"):
-        fcnn((X, y), variant="fcnn99")
+    with pytest.raises(ValueError, match="FCNN version must be 1, 2, 3, or 4"):
+        fcnn(dummy, version=9)
 
     with pytest.raises(ValueError, match="version must be 1, 2, 3, 4, or 5"):
-        drop((X, y), version=9)
+        drop(dummy, version=9)
 
     with pytest.raises(ValueError, match="must not be empty"):
-        fcnn((np.empty((0, 2)), np.empty(0)))
+        fcnn(empty)
 
     with pytest.raises(ValueError, match="positive integer"):
-        eenth((X, y), k=-1)
+        eenth(dummy, k=-1)
+
+
+# ---------------------------------------------------------------------------
+# KNN Pipeline Integration & Correctness Verification Examples
+# ---------------------------------------------------------------------------
+
+
+def test_knn_example_fcnn_correctness(synthetic_clusters):
+    """Example verifying KNN with FCNN reduction: reduces storage while keeping consistency."""
+    knn = KNN({"k": 3, "reduction": "fcnn", "version": 1})
+    result = knn.fit_predict(synthetic_clusters, synthetic_clusters)
+
+    # Reduction: storage must be strictly less than original dataset size
+    assert result.storage < len(synthetic_clusters.y_codes)
+    # Accuracy on separable clusters remains high (> 90%)
+    acc = np.mean(np.array(result.predictions) == synthetic_clusters.y_codes)
+    assert acc > 0.90
+    assert len(result.predictions) == len(synthetic_clusters.y_codes)
+
+
+def test_knn_example_eenth_correctness(synthetic_clusters):
+    """Example verifying KNN with EENTh reduction: prunes noisy border instances."""
+    knn = KNN({"k": 3, "reduction": "eenth", "threshold": 0.6})
+    result = knn.fit_predict(synthetic_clusters, synthetic_clusters)
+
+    # Outliers removed, clean instances retained
+    assert result.storage <= len(synthetic_clusters.y_codes)
+    acc = np.mean(np.array(result.predictions) == synthetic_clusters.y_codes)
+    assert acc > 0.90
+
+
+def test_knn_example_drop_correctness(synthetic_clusters):
+    """Example verifying KNN with DROP reduction: high compression and accurate predictions."""
+    knn = KNN({"k": 3, "reduction": "drop", "version": 3})
+    result = knn.fit_predict(synthetic_clusters, synthetic_clusters)
+
+    # DROP removes internal and noisy instances, cutting storage by > 30%
+    assert result.storage < len(synthetic_clusters.y_codes) * 0.70
+    acc = np.mean(np.array(result.predictions) == synthetic_clusters.y_codes)
+    assert acc > 0.90
+
+
+def test_knn_example_reduction_and_retention(synthetic_clusters):
+    """Example verifying KNN with both reduction and retention enabled."""
+    knn = KNN(
+        {
+            "k": 3,
+            "reduction": "drop",
+            "version": 3,
+            "retention": "different_class",
+        }
+    )
+    result = knn.fit_predict(synthetic_clusters, synthetic_clusters)
+    assert len(result.predictions) == len(synthetic_clusters.y_codes)
+    assert result.storage > 0

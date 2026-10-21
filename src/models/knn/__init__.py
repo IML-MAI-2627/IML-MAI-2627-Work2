@@ -2,32 +2,36 @@
 
 from .distances import DISTANCES
 from .knn import KNN, default_params
-from .knn_base import (
+from .knn_utils import (
     Neighbor,
     Neighbors,
     check_k,
-    kNNAlgorithm,
+    classify_from_neighbors,
+    compute_distance_matrix,
+    compute_full_distance_matrix,
+    concat_preprocessed,
+    find_k_nearest,
     nearest_neighbors,
     predict,
     run_kNN,
+    subset_preprocessed,
 )
 from .reduction import (
     REDUCTION_TECHNIQUES,
     InstanceReduction,
     ReductionResult,
     drop,
-    drop1,
-    drop2,
-    drop3,
-    drop4,
-    drop5,
     eenth,
     fcnn,
     reduce_dataset,
-    wilson_prob,
-    wilson_th,
 )
-from .retention import RETENTION, always_retain, different_class, never_retain
+from .retention import (
+    RETENTION,
+    OblivionByGoodness,
+    always_retain,
+    different_class,
+    never_retain,
+)
 from .voting import VOTING, inverse_distance, majority
 
 __all__ = [
@@ -37,25 +41,24 @@ __all__ = [
     "Neighbor",
     "Neighbors",
     "check_k",
-    "kNNAlgorithm",
     "nearest_neighbors",
     "predict",
     "run_kNN",
+    "classify_from_neighbors",
+    "compute_distance_matrix",
+    "compute_full_distance_matrix",
+    "concat_preprocessed",
+    "find_k_nearest",
+    "subset_preprocessed",
     "REDUCTION_TECHNIQUES",
     "InstanceReduction",
     "ReductionResult",
     "drop",
-    "drop1",
-    "drop2",
-    "drop3",
-    "drop4",
-    "drop5",
     "eenth",
     "fcnn",
     "reduce_dataset",
-    "wilson_prob",
-    "wilson_th",
     "RETENTION",
+    "OblivionByGoodness",
     "always_retain",
     "different_class",
     "never_retain",

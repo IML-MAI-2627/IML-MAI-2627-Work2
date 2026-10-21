@@ -7,8 +7,9 @@ from preprocessing import Preprocessed
 
 class MajorityBaseline(BaseClassifier):
     def parse_params(self):
-        # Baseline doesn't need parameters.
-        pass
+        # Baseline doesn't take parameters; fail-fast if unknown parameters are provided.
+        if self.params:
+            raise ValueError(f"Unknown Baseline parameters provided: {sorted(self.params.keys())}")
 
     def prepare_data(self, train: Preprocessed, test: Preprocessed):
         pass

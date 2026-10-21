@@ -8,8 +8,14 @@ import config
 from experiment_runner import ClassificationResult
 from models.knn.distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from models.knn.knn import KNN, default_params
-from models.knn.knn_base import Neighbor, OblivionByGoodness, kNNAlgorithm, run_kNN
-from models.knn.retention import RETENTION, always_retain, different_class, never_retain
+from models.knn.knn_utils import Neighbor, run_kNN
+from models.knn.retention import (
+    RETENTION,
+    OblivionByGoodness,
+    always_retain,
+    different_class,
+    never_retain,
+)
 from models.knn.voting import VOTING, inverse_distance, majority
 from preprocessing import Preprocessed, preprocess_fold
 
@@ -92,7 +98,54 @@ def test_parse_params_rejects_unknown_values(params, match):
 
 def test_params_contain_only_plain_values():
     """Callables would be written as '<function ...>' in the CSV ``params`` column."""
-    assert all(isinstance(v, int | str) for v in KNN({}).params.values())
+    assert all(isinstance(v, int | float | str) for v in KNN({}).params.values())
+
+
+def test_parse_params_reduction_adds_exclusive_parameters():
+    # FCNN: adds version (default 1)
+    knn_fcnn = KNN({"reduction": "fcnn"})
+    assert knn_fcnn.params["reduction"] == "fcnn"
+    assert knn_fcnn.params["version"] == 1
+    assert "threshold" not in knn_fcnn.params
+
+    # DROP: adds version (default 3)
+    knn_drop = KNN({"reduction": "drop", "version": 4})
+    assert knn_drop.params["reduction"] == "drop"
+    assert knn_drop.params["version"] == 4
+    assert "threshold" not in knn_drop.params
+
+    # EENTh: adds threshold (default 0.0)
+    knn_eenth = KNN({"reduction": "eenth", "threshold": 0.6})
+    assert knn_eenth.params["reduction"] == "eenth"
+    assert knn_eenth.params["threshold"] == 0.6
+    assert "version" not in knn_eenth.params
+
+    # None: neither version nor threshold
+    knn_none = KNN({"reduction": "none"})
+    assert knn_none.params["reduction"] == "none"
+    assert "version" not in knn_none.params
+    assert "threshold" not in knn_none.params
+
+
+def test_parse_params_reduction_rejects_incompatible_parameters():
+    with pytest.raises(ValueError, match="Unknown parameter 'threshold' for FCNN"):
+        KNN({"reduction": "fcnn", "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'threshold' for DROP"):
+        KNN({"reduction": "drop", "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
+        KNN({"reduction": "eenth", "version": 2})
+
+    err_none = "are not allowed when reduction is 'none'"
+    with pytest.raises(ValueError, match=err_none):
+        KNN({"reduction": "none", "version": 3})
+
+    with pytest.raises(ValueError, match=err_none):
+        KNN({"version": 3})
+
+    with pytest.raises(ValueError, match=err_none):
+        KNN({"threshold": 0.5})
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +191,7 @@ def test_fit_predict_returns_classification_result(small_fold):
 
 def test_fit_predict_matches_kNNAlgorithm(small_fold):
     train, test = small_fold
-    expected = kNNAlgorithm(train, test, 3, euclidean, majority)
+    expected = run_kNN(train, test, 3, euclidean, majority).predictions
     assert KNN({"k": 3}).fit_predict(train, test).predictions == expected
 
 
@@ -352,6 +405,21 @@ def test_heom_is_registered():
     assert DISTANCES["heom"] is heom
 
 
+@pytest.mark.parametrize("metric_name", ["euclidean", "manhattan", "canberra", "clark", "heom"])
+def test_distance_single_argument_matches_symmetric(small_fold, metric_name):
+    train, _ = small_fold
+    fn = DISTANCES[metric_name]
+    # Single argument call using triu_indices
+    d_single = fn(train)
+    # Two argument call
+    d_double = fn(train, train)
+    np.testing.assert_allclose(d_single, d_double)
+    # Diagonal is strictly zero
+    assert np.all(np.diag(d_single) == 0.0)
+    # Exact symmetry
+    np.testing.assert_allclose(d_single, d_single.T)
+
+
 # ---------------------------------------------------------------------------
 # Voting
 # ---------------------------------------------------------------------------
@@ -490,7 +558,7 @@ def test_never_retain_matches_batch_path(k):
         nom_values,
     )
     sequential = run_kNN(train, test, k, euclidean, majority, never_retain)
-    assert sequential.predictions == kNNAlgorithm(train, test, k, euclidean, majority)
+    assert sequential.predictions == run_kNN(train, test, k, euclidean, majority).predictions
     assert sequential.case_base_size == 20
 
 

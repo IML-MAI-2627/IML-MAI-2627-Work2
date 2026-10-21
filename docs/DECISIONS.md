@@ -393,94 +393,88 @@ Status: **decided** / **pending**.
       codes would create false distances and orderings between nominal values (e.g., A/C/G/T). One-hot encoding ensures
       orthogonal geometric distances between categories. (decided)
 
-## kNN (issue #6, `../src/models/knn/knn_base.py`, `../src/models/knn/knn.py`)
+## kNN (issue #6, #7-#11, #16-#18: `src/models/knn/`)
 
-### Structure
+### Architecture and Modular Organization
 
-- **Two layers: `kNNAlgorithm(...)` is the algorithm, `KNN(BaseClassifier)` is the adapter.**
-  `kNNAlgorithm(train, test, k, distance_function, voting_function)` in `../src/models/knn/knn_base.py` does the
-  neighbour retrieval and voting. `KNN` in `../src/models/knn/knn.py` follows the same structure as `SVM` and
-  `RandomForest` (`parse_params`, `prepare_data`, `fit_predict`), so `experiments/run.py`
-  (`--classifier knn`) runs it like any other model. `experiments/grid_search.py` does not include
-  the kNN yet; the kNN grid is issue #15.
-    - *Why:* the assignment requires the name `kNNAlgorithm(...)`, and the runner needs the common
-      `BaseClassifier` interface. `fit_predict` only calls `kNNAlgorithm`. (decided)
-- **Own code with numpy, no scikit-learn** in `knn_base.py`, `distances.py`, `voting.py` and
-  `models/knn.py`. scikit-learn's `KNeighborsClassifier` is used only in a test as a sanity check.
-    - *Why:* Numpy is used for array operations inside our own kNN (distance matrix, sorting),
-        the kNN logic itself (neighbour selection, tie-breaking, voting) is our own code. On splice
-        it is ~100x faster than plain Python loops. (decided)
-- **Checked against scikit-learn (`KNeighborsClassifier`, brute force) on all 10 folds:** identical
-  predictions for k=1 on both datasets; for k>1 every difference comes from a tie (at the k-th
-  neighbour or in the vote), which we break deterministically and sklearn does not. (note)
+- **Modular package architecture in `src/models/knn/` with unified utilities.**
+  Instead of scattering logic across multiple files (`knn_base.py`, `knn.py`, `distances.py`, etc.), the kNN subsystem is organized into specialized, cohesive modules:
+  - `knn_utils.py`: Shared data containers (`Neighbor`, `Neighbors`, `KNNRun`), validation functions (`check_k`, `_check_distances`, `_check_vote`), dataset slicing, distance matrix operations, nearest-neighbor sorting, sequential retention processing (`_run_with_retention`), and the unified execution entry point `run_kNN()`.
+  - `knn.py`: The `KNN(BaseClassifier)` adapter orchestrating parameter parsing, data preparation, reduction, and delegating execution to `run_kNN()`.
+  - `distances.py`: Own distance metric implementations (`euclidean`, `manhattan`, `canberra`, `clark`, `heom`) in pure NumPy with symmetric optimization.
+  - `voting.py`: Voting strategies (`majority`, `inverse_distance`).
+  - `retention.py`: Dynamic test-time retention policies (`never`, `always`, `different_class`, `oblivion_by_goodness`).
+  - `reduction.py`: Training set instance reduction algorithms (`fcnn`, `drop`, `eenth`) with object-oriented validation (`InstanceReduction`).
+    - *Why:* Eliminates code duplication, avoids circular dependencies, and provides a single, unified execution path (`run_kNN`) for batch and retention classification, maximizing code reuse across kNN, reduction, and retention. (decided)
+- **Single unified execution engine: `run_kNN()`.**
+  Replaces separate algorithm runners. When `retention_function is None`, `run_kNN()` executes the fast batch path using vectorized NumPy broadcasting and stable sorting. When a retention policy is active, it delegates directly to `_run_with_retention()` to sequentially classify and update the case base.
+    - *Why:* Simplifies the adapter to a single execution call, avoiding branching complexity while keeping execution speed optimal. (decided)
+- **Strictly own code with NumPy, no scikit-learn.**
+  All distance evaluations, prototype selection, associate graph updates, neighbor sorting, voting, and retention are implemented from scratch using NumPy.
+    - *Why:* Strict requirement of the course assignment; custom vectorization yields comparable or superior performance to scikit-learn on our datasets. (decided)
 
-### Neighbour retrieval
+### Distance Calculations and Symmetric Optimization (`distances.py`)
 
-- **Distances are computed as one `(n_test, n_train)` matrix per call** (vectorised with numpy).
-  With `run.py`, each configuration is a separate `KNN` and each `fit_predict` computes the matrix
-  again. The API also allows reuse: `nearest_neighbors(..., k_max=7)` once, then `predict` for
-  K = 3, 5, 7 and every voting policy. (decided)
-    - *Planned for the grid (#15):* reuse the neighbours across K and voting to make the 96
-      configurations affordable. The `time` column must then stay comparable with SVM / RF (e.g.
-      charge each configuration the shared distance time plus its own voting time). (pending)
-- **Neighbour order is deterministic:** stable argsort, so ties in distance go to the lower training
-  index. Voting policies receive neighbours ordered by `(distance, index)`. (decided)
-- **All distances must be finite and non-negative, and the matrix must have the right shape.**
-  Otherwise `ValueError` before voting. (decided)
+- **Exploiting matrix symmetry with `np.triu_indices` for single-dataset distance calls.**
+  All distance metrics support single-argument calls (`dist_fn(data)`). When computing pairwise distances of a dataset with itself (e.g. `train` x `train` for reduction, or `test` x `test` for dynamic retention), only the upper triangle $i < j$ ($N(N-1)/2$ pairs) is evaluated.
+    - *Why:* Slashes arithmetic operations (subtractions, squares, sums) by **50%**. Avoids allocating the full 3D intermediate difference array $(N, N, d)$ in memory, cutting peak intermediate RAM consumption by **50%**. Also compares nominal codes directly (`data.X_nom[i] != data.X_nom[j]`) without inflating one-hot matrices. (decided)
+- **Reconstruction and retention of the full $(N, N)$ symmetric 2D matrix.**
+  Although only the upper triangle is computed, the values are mirrored across the diagonal to yield a full $(N, N)$ NumPy matrix with exact zeros on the diagonal.
+    - *Why:* All neighbor queries in FCNN (nearest enemy search), DROP (associates search and sorting), EENTh (consensus checking), and retention (candidate filtering) rely on **$O(1)$ vectorized row slicing** (`D[p, :]` and `D[p, candidates]`). Storing a condensed 1D distance array would require complex index arithmetic and prevent NumPy's optimized C-level row slicing, drastically slowing down neighbor lookups in Python. The full 2D float64 matrix takes minimal storage (~8 MB for $N=1000$), so keeping the 2D matrix is optimal. (decided)
+- **Five registered distance metrics (`DISTANCES`):**
+  - `euclidean`: Minkowski $r=2$ with nominal overlap on one-hot representation.
+  - `manhattan`: Minkowski $r=1$ with nominal overlap on one-hot representation.
+  - `canberra`: Relative difference $\frac{|x - y|}{|x| + |y|}$ with nominal overlap; $0/0$ terms count as 0.
+  - `clark`: Squared relative difference without square root; $0/0$ terms count as 0.
+  - `heom`: Heterogeneous Euclidean-Overlap Metric (Wilson & Martinez, 1997) combining scaled continuous distances with categorical equality overlap. (decided)
 
-### Parameters and validation (Fail-Fast philosophy, as in SVM / RF)
+### Decoupled Training Reduction and Test Evaluation (`knn.py`)
 
-- **Parameters: `k` (default 3), `distance` (default `euclidean`), `voting` (default `majority`).**
-  Unknown keys, a non-integer or non-positive `k` (including `"None"`), and unknown strategy names
-  raise `ValueError`. Names are case-insensitive. Defaults are injected into `params` so they appear
-  in the CSV. (decided)
-- **Strategies are selected by name** through the registries `DISTANCES` (`../src/models/knn/distances.py`) and
-  `VOTING` (`../src/models/knn/voting.py`). `self.params` keeps only the names; the callables are looked up in
-  `fit_predict`.
-    - *Why:* the CLI passes strings, and the CSV `params` column must show readable names, not
-      `<function ...>`. (decided)
-- **`prepare_data` validates and returns the `Preprocessed` folds unchanged** (non-empty, aligned).
-  Unlike SVM / RF it does not build one matrix. `k <= n_train` is checked once, inside
-  `nearest_neighbors`.
-    - *Why:* each distance chooses its own representation (`to_onehot()` for the numeric-only metrics,
-      `X_num` / `X_nom` for HEOM). The folds are cached by the runner, so they are never modified. (decided)
-- **No `random_state`:** the kNN is deterministic. (decided)
-- **`storage = len(train.y)`** (100%). Retention and reduction will report the retained count. (decided)
+- **Decoupled distance computation between training reduction and test prediction.**
+  Instead of computing an upfront $(Train + Test) \times (Train + Test)$ matrix, distances are computed on `train` for reduction, and the test phase computes distances only against retained prototypes ($N_{test} \times N_{reduced}$).
+    - *Why:* In instance reduction, 50% to 90% of training instances are pruned. Precomputing distances from test instances to training instances that get discarded was completely wasted computation. Furthermore, computing $N_{test} \times N_{test}$ distances when retention is `"never"` was 100% redundant. Decoupling eliminates all redundant distance calculations. (decided)
 
-### Strategies included in this issue
+### Case-Base Retention Policies (`retention.py`)
 
-- **`euclidean`:** Minkowski r=2 on `to_onehot()`, all weights 1. Computed as two exact parts:
-  numeric squared differences, plus `2 x (number of different nominal values)`, because two one-hot
-  rows of one attribute differ in 0 or 2 columns. The number of matches comes from a product of
-  0/1 matrices, which is exact, so equal rows give exactly 0 and ties remain ties.
-    - *Why:* a direct one-hot difference needs an `(n_test, n_train, n_onehot)` array (~2 GB on
-      splice), and a row-by-row loop took 0.69 s per splice fold against 0.027 s now. The matrix is
-      identical on splice; on vowel it differs by at most 2e-16 and the 7 nearest neighbours of every
-      test case are the same in all 10 folds. (decided)
-    - *Why one-hot:* follows the pending proposal "nominals in Euclidean/Manhattan/Clark use the one-hot
-      version"; integer codes would impose a false order. (decided for euclidean, team to confirm)
-- **`majority`:** most frequent class; **a tie goes to the tied class of the nearest neighbour**
-  (the first one in `(distance, index)` order). (decided)
-- **Sanity check:** 1-NN euclidean on vowel gives 0.9889 mean accuracy over the 10 folds, the same as
-  the 1-NN check of the preprocessing (~98.9%). k=3 on splice gives 0.795 (baseline 0.52). (note)
+- **Sequential processing over a dynamic case base.**
+  Unlike batch kNN, dynamic retention evaluates test instances sequentially ($i = 0, \dots, N_{test}-1$). The case base begins with the training prototypes and dynamically expands (or contracts) as test instances are classified. (decided)
+- **Four registered retention policies (`RETENTION`):**
+  - `never`: Static case base; standard batch evaluation.
+  - `always`: Retains every test instance upon classification.
+  - `different_class`: Retains a test instance only if the prediction was incorrect.
+  - `oblivion_by_goodness`: Reinforcement learning case retention. (decided)
+- **Encapsulation of `OblivionByGoodness` in `retention.py`.**
+  Encapsulates neighbor goodness tracking, reinforcement adjustments, and threshold-based forgetting:
+  - Neighbors contributing to a correct classification receive positive reinforcement; neighbors voting incorrectly are penalized.
+  - Cases whose goodness score drops below the threshold are pruned from the active mask.
+  - Enforces a minimum case floor (`min_cases=k`) so that pruning never reduces active cases below the neighborhood size $k$. (decided)
 
-### Integration contract for follow-up issues
+### Instance Reduction Techniques (`reduction.py`)
 
-- **Distances (#7, #8):** `def metric(train: Preprocessed, test: Preprocessed) -> np.ndarray` returning
-  the `(n_test, n_train)` matrix, registered in `DISTANCES` under its CLI name.
-- **Voting (#9):** `def policy(neighbors: Sequence[Neighbor]) -> int` with a deterministic tie-break,
-  registered in `VOTING`. A policy parameter such as `p` for IDW is added to `default_params` in
-  `models/knn.py` and validated in `parse_params`.
-- **Reduction (#16-#18):** neighbours inside the training set: call the distance function directly
-  (`D = distance_function(train, train)`), **set the diagonal to `inf`** (`np.fill_diagonal`) so a
-  case is never its own neighbour, and select with a stable argsort, as `nearest_neighbors` does.
-  `nearest_neighbors` itself cannot be used here, because it rejects non-finite distances. Do not drop "the neighbour at distance 0" or "the first neighbour": with duplicate rows
-  a lower-index copy sorts first, and with more than k + 1 copies the case itself may not be among
-  the k + 1 nearest. `reduction_kNNAlgorithm(...)` (#19)
-  follows the same pattern: a function with the required name plus a `BaseClassifier` adapter.
-- **Retention (#10, #11):** the matrix assumes a fixed case base (NR). AR / DC / OG change the case
-  base while the test set is processed, so they need sequential processing. (pending)
-- Strategies must never modify `train` or `test`.
+- **Three registered reduction techniques (`REDUCTION_TECHNIQUES`):**
+  - **FCNN (Fast Condensed Nearest Neighbor, Angiulli 2007):**
+    Initializes prototype set $S$ with class centroids/medoids. Iteratively queries representatives for nearest enemies using precomputed distances. Guaranteed 100% training-set consistent (Theorem 3.1).
+    - Governed by `--version`: `1` (Centroid rule), `2` (Nearest enemy rule), `3` (Furthest enemy rule), `4` (Random enemy rule).
+    - *Why:* The centroid rule provides clean class anchors; enemy selection rules balance boundary tightness vs storage compression. (decided)
+  - **DROP (Decremental Reduction Optimization Procedure, Wilson & Martinez 2000):**
+    Prunes instances whose removal does not reduce the leave-one-out classification accuracy of their *associates* (instances that have $p$ in their $k+1$ nearest neighbors).
+    - Governed by `--version`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN pre-filtering), `4` (DROP4), `5` (DROP5).
+    - In DROP1, removed points are discarded from neighbor lists of associates so risk evaluations never reference pruned instances.
+    - *Why:* Associate-based risk checks prevent cascading classification errors; DROP3's initial ENN pass eliminates noisy border instances before pruning internal prototypes. (decided)
+  - **EENTh (Extended Edited Nearest Neighbor with Threshold, Wilson & Martinez 2000):**
+    Consensus-based noise filtering. An instance is retained only if the proportion of its $k$ nearest neighbors agreeing with its label exceeds `--threshold` $\in [0, 1]$ (default 0.0).
+    - *Why:* Provides flexible border smoothing and noise cleaning; unified under a single threshold parameter. (decided)
+
+### Parameters and Validation (Fail-Fast Philosophy)
+
+- **Strict, fail-fast hyperparameter validation.**
+  `KNN.parse_params` and `InstanceReduction` validate all configuration parameters upfront:
+  - Unknown parameters raise `ValueError: Unknown kNN parameters provided: [...]`.
+  - Incompatible reduction parameters raise immediate `ValueError`: passing `version` to EENTh, passing `threshold` to FCNN or DROP, or passing either when reduction is `"none"`.
+  - Incompatible parameters passed to `MajorityBaseline` also raise `ValueError`.
+    - *Why:* Prevents configuration errors and typos from being silently ignored or causing silent misbehavior during long multi-fold runs. (decided)
+- **Default parameter injection and CSV synchronization.**
+  Default values are injected for omitted parameters (`k=3`, `distance="euclidean"`, `voting="majority"`, `retention="never"`, `reduction="none"`). Active reduction parameters (`version` for FCNN/DROP, `threshold` for EENTh) are synchronized into `self.params` and serialized in the CSV results table. (decided)
 
 ## Hyperparameter Tuning (Grid Search)
 
@@ -578,12 +572,14 @@ Status: **decided** / **pending**.
 | Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                                     | `src/experiment_runner.py`            |
 | Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                                        | `src/models/random_forest.py`         |
 | Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                                                | `src/models/svm.py`                   |
-| kNN                                  | `kNNAlgorithm`: one vectorised distance matrix, stable argsort, injected distance and voting                        | Own code + `numpy`                                                                               | `../src/models/knn/knn_base.py`                     |
-| kNN adapter                          | `KNN(BaseClassifier)`, strategies selected by name                                                                  | Own code                                                                                         | `../src/models/knn/knn.py`                   |
-| kNN distances                        | Euclidean on the one-hot representation (registry `DISTANCES`)                                                      | Own code + `numpy`                                                                               | `../src/models/knn/distances.py`                    |
-| kNN voting                           | Majority, tie goes to the nearest tied neighbour (registry `VOTING`)                                                | Own code (`collections.Counter`)                                                                 | `../src/models/knn/voting.py`                       |
-| Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `src/experiments/grid_search.py`      |
-| Grid Search                          | Extracting optimal models using grid_search and applying the statistical tests                                      | Own code                                                                                         | `src/experiments/grid_search.py`      |
+| kNN utilities & runner               | `run_kNN`: vectorized distance matrix, stable tie-breaking, neighbor retrieval, batch and retention modes | Own code + `numpy`                                                                               | `src/models/knn/knn_utils.py`        |
+| kNN adapter                          | `KNN(BaseClassifier)`, validates hyperparameters, prunes inactive keys, integrates reduction and retention        | Own code                                                                                         | `src/models/knn/knn.py`              |
+| kNN distances                        | Euclidean, Manhattan, Canberra, Clark, HEOM (registry `DISTANCES`); supports single-argument `triu_indices` calls  | Own code + `numpy`                                                                               | `src/models/knn/distances.py`        |
+| kNN voting                           | Majority (nearest-tied tie-break) and Inverse Distance (registry `VOTING`)                                         | Own code                                                                                         | `src/models/knn/voting.py`           |
+| kNN retention                        | Never, Always, Different Class, Oblivion by Goodness with neighbor score reinforcement (registry `RETENTION`)        | Own code                                                                                         | `src/models/knn/retention.py`        |
+| Instance reduction                   | FCNN (rules 1..4), EENTh (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
+| Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `experiments/grid_search.py`          |
+| Grid Search analysis                 | Extracting optimal models using grid_search and applying statistical tests                                          | Own code                                                                                         | `experiments/grid_search.py`          |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |
 | EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                                    | `experiments/eda.py`                  |
 | EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                                         | `experiments/eda.py`                  |
