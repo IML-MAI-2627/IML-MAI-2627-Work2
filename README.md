@@ -413,7 +413,8 @@ It retrains the winners in `winners.json` (best kNN, SVM and RF, without and wit
 reduction technique) on the 10 folds with per-class scores, checks that the accuracy is the
 one of the grid search, caches the scores in `plots/cache/` and writes to
 `results/gridsearch_v2/plots/`: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` and
-`tradeoff_<dataset>.png` (accuracy vs storage and vs solve time). `--retrain` ignores the
+`tradeoff_<dataset>.png` (accuracy vs storage and vs solve time) and `reduction_<dataset>.png`
+(accuracy, solve time, reduction time and storage per technique for kNN, SVM and RF). `--retrain` ignores the
 cache; `--dataset` limits it to one dataset.
 
 ## Layout

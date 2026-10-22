@@ -40,7 +40,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "experiments"))
 
-from grid_search_v2 import CLASSIFIERS, KNN_BASE_KEYS, matches, parse_params  # noqa: E402
+from grid_search_v2 import (  # noqa: E402
+    CLASSIFIERS,
+    KNN_BASE_KEYS,
+    load_dataset,
+    matches,
+    parse_params,
+)
 
 import config  # noqa: E402
 from experiment_runner import confusion_matrix, load_fold  # noqa: E402
@@ -259,6 +265,103 @@ def plot_tradeoff(dataset: str, results: Path, winners: dict, out: Path) -> None
     plt.close(fig)
 
 
+TECHNIQUES = ("none", "fcnn", "eenth", "drop", "del")
+
+
+def reduction_table(results: Path, dataset: str, winners: dict) -> pd.DataFrame:
+    """Per fold rows of the best kNN / SVM / RF without reduction and with each technique
+    (the variant chosen on the best kNN), labelled with ``model`` and ``technique``."""
+    df = load_dataset(results, dataset)
+    champions = winners.get("reduction_champions", {})
+
+    def chosen_variant(p: dict) -> bool:
+        technique = p.get("reduction", "none")
+        if technique == "none":
+            return True
+        if technique not in champions:
+            return False
+        return all(p.get(k) == str(v) for k, v in champions[technique].items())
+
+    parts = []
+    for base in ("knn", "svm", "rf"):
+        if base not in winners:
+            continue
+        params = {k: str(v) for k, v in winners[base]["params"].items()}
+        keys = KNN_BASE_KEYS if base == "knn" else tuple(k for k in params if k != "reduction")
+        rows = df[
+            (df["key"] == base)
+            & df["p"].map(lambda p, b=params, k=keys: matches(p, b, k))
+            & df["p"].map(chosen_variant)
+        ]
+        parts.append(rows.assign(model=base, technique=rows["reduction"]))
+    return pd.concat(parts, ignore_index=True)
+
+
+def plot_reduction(dataset: str, results: Path, winners: dict, out: Path) -> None:
+    """Accuracy, solve time, reduction time and storage per technique and model (#19, #20)."""
+    table = reduction_table(results, dataset, winners)
+    stats_ = table.groupby(["model", "technique"]).agg(
+        acc=("accuracy", "mean"),
+        acc_std=("accuracy", "std"),
+        solve=("solve_time", "mean"),
+        reduce=("reduction_time", "mean"),
+        storage=("storage", "mean"),
+    )
+    techniques = [t for t in TECHNIQUES if t in set(table["technique"])]
+    models = [m for m in ("knn", "svm", "rf") if m in set(table["model"])]
+    x = np.arange(len(techniques))
+    width = 0.8 / len(models)
+    fig, axes = plt.subplots(2, 2, figsize=(11, 7.5))
+    (ax_acc, ax_solve), (ax_red, ax_sto) = axes
+
+    for i, model in enumerate(models):
+        offset = (i - (len(models) - 1) / 2) * width
+        rows = stats_.loc[model].reindex(techniques)
+        bar = {"width": width, "color": COLORS[model], "edgecolor": "white", "linewidth": 1}
+        ax_acc.bar(
+            x + offset,
+            rows["acc"],
+            yerr=rows["acc_std"],
+            label=NAMES[model],
+            error_kw={"ecolor": "#52514e", "elinewidth": 1, "capsize": 2},
+            **bar,
+        )
+        ax_solve.bar(x + offset, rows["solve"], **bar)
+        ax_sto.bar(x + offset, rows["storage"], **bar)
+
+    # The reduced set is shared by the three models, so its cost is one bar per technique.
+    reduced = [t for t in techniques if t != "none"]
+    cost = stats_.loc["knn"].reindex(reduced)["reduce"] if "knn" in models else None
+    if cost is not None:
+        ax_red.bar(np.arange(len(reduced)), cost, width=0.5, color="#8a8984")
+        ax_red.set_xticks(np.arange(len(reduced)), reduced)
+        for xi, value in enumerate(cost):
+            ax_red.text(xi, value, f"{value:.1f}s", ha="center", va="bottom", fontsize=8)
+
+    low = max(0.0, float((stats_["acc"] - stats_["acc_std"]).min()) - 0.02)
+    ax_acc.set(ylabel="Mean accuracy (± std over folds)", ylim=(low, 1.0), title="Accuracy")
+    ax_solve.set(
+        ylabel="Seconds per fold (log)",
+        yscale="log",
+        title="Solve time (fit + predict, without the reduction)",
+    )
+    ax_red.set(ylabel="Seconds per fold", title="Reduction time (shared by the three models)")
+    ax_sto.axhline(100, color="#b5b4ae", linewidth=1, linestyle=":")
+    ax_sto.set(ylabel="% of the training set", title="Storage (kNN includes its retention policy)")
+    for ax in (ax_acc, ax_solve, ax_sto):
+        ax.set_xticks(x, techniques)
+        ax.grid(axis="x", visible=False)
+    ax_red.grid(axis="x", visible=False)
+    handles, labels = ax_acc.get_legend_handles_labels()
+    fig.legend(
+        handles, labels, frameon=False, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 0.95)
+    )
+    fig.suptitle(f"{dataset}: effect of instance reduction on the best kNN, SVM and RF")
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(out / f"reduction_{dataset}.png", dpi=150)
+    plt.close(fig)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Plots of the grid_search_v2 winners.")
     parser.add_argument("--results", type=Path, default=config.RESULTS_DIR / "gridsearch_v2")
@@ -282,6 +385,7 @@ def main(argv: list[str] | None = None) -> None:
         plot_roc_pr(dataset, runs, winners, len(classes), out)
         plot_confusions(dataset, runs, winners, classes, out)
         plot_tradeoff(dataset, args.results, winners, out)
+        plot_reduction(dataset, args.results, winners, out)
         print(f"[{dataset}] plots saved to {out}")
 
 

@@ -730,7 +730,9 @@ Feature selection vs sample reduction (and combining them) is answered by reason
   are vote shares (few distinct values for small K), so its curves have few steps. (decided)
 - `sklearn.metrics` is used only to draw the curves of every model, never inside the kNN or the reduction.
 - Plots: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` (row-normalised colour, counts for splice),
-  `tradeoff_<dataset>.png` (accuracy vs storage and vs solve time for each model and technique).
+  `tradeoff_<dataset>.png` (accuracy vs storage and vs solve time for each model and technique),
+  `reduction_<dataset>.png` (per technique: accuracy ± std over folds, solve time, reduction time, storage;
+  read from the CSVs, no retraining). The written analysis of #19 / #20 is `report/reduction_analysis.md`.
 
 ---
 
