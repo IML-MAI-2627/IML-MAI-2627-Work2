@@ -167,37 +167,74 @@ These parameters are passed as optional flags. If omitted, the model will fall b
       - `oblivion_by_goodness`: Neighbor-tracked reinforcement learning retention with threshold-based forgetting (`min_cases=k`).
       Default: `never`.
 
-    - `--reduction` (string): Training set instance reduction technique, selected from `REDUCTION_TECHNIQUES` in `src/models/knn/reduction.py`.
-      Must be one of:
-      - `none`: Use the full training set without reduction.
-      - `fcnn`: Fast Condensed Nearest Neighbor (Angiulli, 2007). Guaranteed training-set consistent.
-      - `eenth`: Extended Edited Nearest Neighbor with Threshold (Wilson & Martinez, 2000). Removes noisy/border instances.
-      - `drop`: Decremental Reduction Optimization Procedure (Wilson & Martinez, 2000). Prunes internal and noisy prototypes.
-      Default: `none`.
-
-    - `--version` (integer): Version rule/variant. Exclusive to `--reduction fcnn` and `--reduction drop`:
-      - For `fcnn`: `1` (Centroid rule), `2` (Nearest enemy rule), `3` (Furthest enemy rule), `4` (Random enemy rule). Default: 1.
-      - For `drop`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN filtering), `4` (DROP4), `5` (DROP5). Default: 3.
-      *(Incompatible with `--reduction eenth` or `--reduction none`)*.
-
-    - `--threshold` (float): Pruning acceptance threshold $\in [0, 1]$. Exclusive to `--reduction eenth`:
-      - Instances are pruned if the consensus among their $k$ nearest neighbors is below this threshold. Default: 0.0.
-      *(Incompatible with `--reduction fcnn`, `--reduction drop`, or `--reduction none`)*.
-
     Examples:
     ```bash
     # Standard batch kNN with Canberra distance and inverse distance voting
     python experiments/run.py --dataset vowel --classifier knn --k 5 --distance canberra --voting inverse_distance
 
-    # kNN with DROP3 reduction (retains boundary instances, cuts storage)
-    python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction drop --version 3
-
-    # kNN with FCNN rule 2 (nearest enemy) and dynamic Oblivion by Goodness retention
-    python experiments/run.py --dataset splice --classifier knn --k 3 --reduction fcnn --version 2 --retention oblivion_by_goodness
-
-    # kNN with EENTh filtering at threshold 0.6
-    python experiments/run.py --dataset vowel --classifier knn --k 5 --reduction eenth --threshold 0.6
+    # kNN with dynamic Oblivion by Goodness retention
+    python experiments/run.py --dataset splice --classifier knn --k 3 --retention oblivion_by_goodness
     ```
+
+### Instance Reduction Parameters (Supported Across All Classifiers)
+
+Instance reduction algorithms select a representative subset of training instances $S \subset T$ before model training, drastically reducing memory footprint and prediction latency while pruning noise. Supported across **all classifiers** (`knn`, `svm`, `rf`, `baseline`). Reduction is applied during preprocessing on the training partition before the classifier fits or predicts.
+
+> [!IMPORTANT]
+> **Parameter Compatibility & Exclusivity Rules:**
+> - **In `knn` (`--classifier knn`)**: Instance reduction automatically uses the classifier's own hyperparameters (`--k`, `--distance`, `--voting`) for both classification and reduction. Passing reduction-specific aliases (`--reduction_k`, `--reduction_distance`, `--reduction_voting`) to `knn` is **strictly forbidden and raises a `ValueError`**.
+> - **In non-kNN models (`svm`, `rf`, `baseline`)**: Passing `--k` is **strictly forbidden and raises a `ValueError`** (use `--reduction_k` instead). The neighbor distance metric and voting rule for reduction can be configured with `--distance` (or `--reduction_distance`) and `--voting` (or `--reduction_voting`).
+> - **Fail-fast validation**: Passing any reduction parameter (`--reduction_k`, `--version`, `--threshold`, `--distance`, `--voting`, `--reduction_distance`, `--reduction_voting`) without explicitly specifying `--reduction` is **strictly forbidden and raises a `ValueError`** requiring `--reduction`.
+
+**Reduction Hyperparameters:**
+
+- `--reduction` (string): Training set instance reduction technique, selected from `REDUCTION_TECHNIQUES` in `src/models/knn/reduction.py`.
+  - `none`: Use the full training set without reduction (default).
+  - `fcnn`: Fast Condensed Nearest Neighbor (Angiulli, 2007). Order-independent, training-set consistent condensation.
+  - `eenth`: Extended Edited Nearest Neighbor with Threshold (Vázquez & Sánchez, 2005). Prunes noisy and ambiguous borderline instances.
+  - `drop`: Decremental Reduction Optimization Procedure (Wilson & Martínez, 2000). Decrementally prunes internal and noisy prototypes.
+  - `del`: Decremental Encoding Length (Cameron-Jones, 1995; Wilson & Martinez, 2000 Sections 3.2.8 & 4.6). Minimum Description Length pruning using numerically stable log-space combinatorial sums.
+  Default: `none`.
+
+- `--reduction_k` (positive integer): Number of nearest neighbors used by instance reduction when executing non-kNN models (`svm`, `rf`, `baseline`). Default: 3. *(Forbidden for `knn`, which uses `--k`)*.
+
+- `--version` (integer): Algorithm variant/rule. Exclusive to `--reduction fcnn` and `--reduction drop`:
+  - For `fcnn`: `1` (Centroid rule), `2` (Nearest enemy rule), `3` (Furthest enemy rule), `4` (Random enemy rule). Default: 1.
+  - For `drop`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN filtering), `4` (DROP4), `5` (DROP5). Default: 3.
+  *(Forbidden with `--reduction eenth`, `--reduction del`, or `--reduction none`)*.
+
+- `--threshold` (float): Acceptance consensus threshold $\in [0, 1]$. Exclusive to `--reduction eenth`:
+  - Instances are pruned if the agreement ratio of their $k$ nearest neighbors is below this threshold. Default: 0.0.
+  *(Forbidden with `--reduction fcnn`, `--reduction drop`, `--reduction del`, or `--reduction none`)*.
+
+- `--distance` / `--reduction_distance` (string, optional): Distance metric for neighbor identification during reduction in non-kNN models. Defaults to `euclidean`. *(Forbidden as a separate reduction parameter in `knn`, which uses kNN's classification metric)*.
+
+- `--voting` / `--reduction_voting` (string, optional): Voting rule for neighbor consensus during reduction in non-kNN models. Defaults to `majority`. *(Forbidden as a separate reduction parameter in `knn`, which uses kNN's classification voting rule)*.
+
+**Instance Reduction CLI Examples:**
+
+```bash
+# kNN with DROP3 reduction (shares --k for classification and reduction)
+python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction drop --version 3
+
+# kNN with DEL (Decremental Encoding Length) reduction
+python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction del
+
+# kNN with FCNN rule 2 (nearest enemy) and dynamic Oblivion by Goodness retention
+python experiments/run.py --dataset splice --classifier knn --k 3 --reduction fcnn --version 2 --retention oblivion_by_goodness
+
+# kNN with EENTh filtering at consensus threshold 0.6
+python experiments/run.py --dataset vowel --classifier knn --k 5 --reduction eenth --threshold 0.6
+
+# SVM with DROP3 instance reduction (uses --reduction_k)
+python experiments/run.py --dataset vowel --classifier svm --kernel rbf --reduction drop --version 3 --reduction_k 3
+
+# Random Forest with DEL reduction (MDL compression)
+python experiments/run.py --dataset vowel --classifier rf --n_estimators 100 --reduction del --reduction_k 3
+
+# Majority Baseline with FCNN reduction
+python experiments/run.py --dataset splice --classifier baseline --reduction fcnn --version 1 --reduction_k 3
+```
 
 The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
 Use `--out <path>` to select another destination.
@@ -225,16 +262,20 @@ class MyModel(BaseClassifier):
         # Example: self.params is populated from the command line
         self.k = int(self.params.get("k", 3))
 
-    def prepare_data(self):
-        """We prepare the data for the model fit and predict."""
+    def prepare_data(self, train: Preprocessed, test: Preprocessed):
+        """Prepare data for fit and predict, applying model-configured instance reduction."""
+        if hasattr(self, "reduction_instance") and self.reduction_instance.method != "none":
+            train = train.reduce(self.reduction_instance)
+        # Format features (e.g., train.to_onehot() or return Preprocessed)
         return train_X, train_y, test_X, test_y
 
     def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
         """Core training and prediction logic."""
-        # 1. Train the model using the prepared data from self.prepare_data()
-        # 2. Predict the test instances
+        # 1. Prepare data (including model-level instance reduction)
+        train_X, train_y, test_X, test_y = self.prepare_data(train, test)
+        # 2. Fit model and predict
         predictions = ...  # one integer class code per test row
-        return ClassificationResult(predictions=predictions, storage=len(train.y))
+        return ClassificationResult(predictions=predictions, storage=len(train_y))
 
 
 # ---------------------------------------------------------

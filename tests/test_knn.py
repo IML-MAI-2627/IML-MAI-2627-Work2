@@ -120,6 +120,12 @@ def test_parse_params_reduction_adds_exclusive_parameters():
     assert knn_eenth.params["threshold"] == 0.6
     assert "version" not in knn_eenth.params
 
+    # DEL: neither version nor threshold
+    knn_del = KNN({"reduction": "del"})
+    assert knn_del.params["reduction"] == "del"
+    assert "version" not in knn_del.params
+    assert "threshold" not in knn_del.params
+
     # None: neither version nor threshold
     knn_none = KNN({"reduction": "none"})
     assert knn_none.params["reduction"] == "none"
@@ -137,14 +143,30 @@ def test_parse_params_reduction_rejects_incompatible_parameters():
     with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
         KNN({"reduction": "eenth", "version": 2})
 
+    with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
+        KNN({"reduction": "del", "version": 2})
+
+    with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
+        KNN({"reduction": "del", "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_k' for kNN"):
+        KNN({"reduction": "del", "reduction_k": 3})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_distance' for kNN"):
+        KNN({"reduction": "drop", "reduction_distance": "canberra"})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_voting' for kNN"):
+        KNN({"reduction": "drop", "reduction_voting": "inverse_distance"})
+
     err_none = "are not allowed when reduction is 'none'"
     with pytest.raises(ValueError, match=err_none):
         KNN({"reduction": "none", "version": 3})
 
-    with pytest.raises(ValueError, match=err_none):
+    err_no_red = "without specifying the reduction type parameter '--reduction'"
+    with pytest.raises(ValueError, match=err_no_red):
         KNN({"version": 3})
 
-    with pytest.raises(ValueError, match=err_none):
+    with pytest.raises(ValueError, match=err_no_red):
         KNN({"threshold": 0.5})
 
 
@@ -173,6 +195,14 @@ def test_prepare_data_rejects_misaligned_data(small_fold):
     broken = Preprocessed(**{**vars(test), "y_codes": test.y_codes[:1]})
     with pytest.raises(ValueError, match="same number of instances"):
         KNN({"k": 1}).prepare_data(train, broken)
+
+
+def test_prepare_data_applies_reduction(small_fold):
+    train, test = small_fold
+    knn = KNN({"k": 1, "reduction": "drop", "version": 3})
+    red_train, red_test = knn.prepare_data(train, test)
+    assert len(red_train.y) <= len(train.y)
+    assert len(red_test.y) == len(test.y)
 
 
 # ---------------------------------------------------------------------------

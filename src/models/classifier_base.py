@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-
-from numpy import ndarray
+from typing import Any
 
 from experiment_runner import ClassificationResult
 from preprocessing import Preprocessed
@@ -17,10 +16,8 @@ class BaseClassifier(ABC):
         pass
 
     @abstractmethod
-    def prepare_data(
-        self, train: Preprocessed, test: Preprocessed
-    ) -> [ndarray, ndarray, ndarray, ndarray]:
-        """We prepare the data for the model fit and predict."""
+    def prepare_data(self, train: Preprocessed, test: Preprocessed) -> Any:
+        """Prepare the data for the model fit and predict (including instance reduction)."""
         pass
 
     @abstractmethod

@@ -7,8 +7,14 @@ from models.knn.distances import euclidean, manhattan
 from models.knn.knn import KNN
 from models.knn.reduction import (
     REDUCTION_TECHNIQUES,
+    DELReduction,
+    DROPReduction,
+    EENThReduction,
+    FCNNReduction,
     InstanceReduction,
+    NoReduction,
     ReductionResult,
+    del_reduction,
     drop,
     eenth,
     fcnn,
@@ -203,6 +209,13 @@ def test_instance_reduction_param_validation():
     assert ir_eenth.threshold == 0.7
     assert params_eenth["threshold"] == 0.7
 
+    # DEL accepts neither version nor threshold
+    params_del = {"reduction": "del"}
+    ir_del = InstanceReduction(params_del)
+    assert ir_del.method == "del"
+    assert "version" not in params_del
+    assert "threshold" not in params_del
+
     # None accepts neither
     params_none = {"reduction": "none"}
     ir_none = InstanceReduction(params_none)
@@ -220,12 +233,94 @@ def test_instance_reduction_rejects_incompatible_params():
     with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
         InstanceReduction({"reduction": "eenth", "threshold": 0.7, "version": 2})
 
+    with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
+        InstanceReduction({"reduction": "del", "version": 2})
+
+    with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
+        InstanceReduction({"reduction": "del", "threshold": 0.5})
+
     err_none = "are not allowed when reduction is 'none'"
     with pytest.raises(ValueError, match=err_none):
         InstanceReduction({"reduction": "none", "version": 3})
 
     with pytest.raises(ValueError, match=err_none):
         InstanceReduction({"reduction": "none", "threshold": 0.8})
+
+    with pytest.raises(ValueError, match=err_none):
+        InstanceReduction({"reduction": "none", "reduction_k": 3})
+
+
+def test_parse_reduction_params_without_reduction():
+    """Passing reduction parameters without --reduction raises ValueError."""
+    from models.knn.reduction import parse_reduction_params
+
+    msg = "without specifying the reduction type parameter '--reduction'"
+    with pytest.raises(ValueError, match=msg):
+        parse_reduction_params({"reduction_k": 3}, is_knn=False)
+
+    with pytest.raises(ValueError, match=msg):
+        parse_reduction_params({"version": 3}, is_knn=False)
+
+    with pytest.raises(ValueError, match=msg):
+        parse_reduction_params({"threshold": 0.5}, is_knn=False)
+
+    with pytest.raises(ValueError, match=msg):
+        parse_reduction_params({"reduction_distance": "canberra"}, is_knn=False)
+
+    with pytest.raises(ValueError, match=msg):
+        parse_reduction_params({"version": 3}, is_knn=True)
+
+
+def test_parse_reduction_params_knn_rejects_reduction_aliases():
+    """kNN rejects reduction-specific aliases (reduction_k, distance, voting)."""
+    from models.knn.reduction import parse_reduction_params
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_k' for kNN"):
+        parse_reduction_params({"reduction_k": 3}, is_knn=True)
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_distance' for kNN"):
+        parse_reduction_params({"reduction_distance": "canberra"}, is_knn=True)
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_voting' for kNN"):
+        parse_reduction_params({"reduction_voting": "inverse_distance"}, is_knn=True)
+
+
+def test_parse_reduction_params_non_knn_accepts_distance_and_voting():
+    """Non-kNN models accept reduction_distance and reduction_voting."""
+    from models.knn.reduction import parse_reduction_params
+
+    red = parse_reduction_params(
+        {
+            "reduction": "drop",
+            "version": 3,
+            "reduction_k": 5,
+            "reduction_distance": "canberra",
+            "reduction_voting": "inverse_distance",
+        },
+        is_knn=False,
+    )
+    assert red.method == "drop"
+    assert red.k == 5
+    assert red.distance == "canberra"
+    assert red.voting == "inverse_distance"
+
+
+def test_oop_subclasses_inheritance_and_override(synthetic_clusters):
+    """Each reduction technique is a subclass of InstanceReduction and overrides reduce()."""
+    subclasses = [
+        (NoReduction(), "none"),
+        (FCNNReduction(version=1), "fcnn"),
+        (DROPReduction(version=3), "drop"),
+        (EENThReduction(threshold=0.5), "eenth"),
+        (DELReduction(k=3), "del"),
+    ]
+    for instance, expected_method in subclasses:
+        assert isinstance(instance, InstanceReduction)
+        assert instance.method == expected_method
+        res = instance.reduce(synthetic_clusters)
+        assert isinstance(res, ReductionResult)
+        assert res.n_retained > 0
+        assert res.n_retained <= res.n_original
 
 
 def test_reduce_dataset_function(multiclass_data):
@@ -249,21 +344,27 @@ def test_reduction_returns_preprocessed_object(synthetic_clusters):
     assert isinstance(res_drop.data, Preprocessed)
     assert len(res_drop.data.y_codes) == res_drop.n_retained
 
+    res_del = del_reduction(synthetic_clusters, k=3)
+    assert isinstance(res_del.data, Preprocessed)
+    assert len(res_del.data.y_codes) == res_del.n_retained
+
 
 def test_reduction_with_different_distances(multiclass_data):
     """Reduction techniques support various metrics (manhattan, canberra, callable)."""
     res_man = fcnn(multiclass_data, distance=manhattan)
     res_can = eenth(multiclass_data, distance="canberra")
     res_drop = drop(multiclass_data, version=3, distance="manhattan")
+    res_del = del_reduction(multiclass_data, distance=manhattan)
 
     assert res_man.n_retained > 0
     assert res_can.n_retained > 0
     assert res_drop.n_retained > 0
+    assert res_del.n_retained > 0
 
 
 def test_reduction_registry():
     """REDUCTION_TECHNIQUES contains only expected methods."""
-    assert set(REDUCTION_TECHNIQUES.keys()) == {"fcnn", "eenth", "drop"}
+    assert set(REDUCTION_TECHNIQUES.keys()) == {"fcnn", "eenth", "drop", "del"}
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +432,17 @@ def test_knn_example_drop_correctness(synthetic_clusters):
 
     # DROP removes internal and noisy instances, cutting storage by > 30%
     assert result.storage < len(synthetic_clusters.y_codes) * 0.70
+    acc = np.mean(np.array(result.predictions) == synthetic_clusters.y_codes)
+    assert acc > 0.90
+
+
+def test_knn_example_del_correctness(synthetic_clusters):
+    """Example verifying KNN with DEL reduction: encoding length heuristic reduces instances."""
+    knn = KNN({"k": 3, "reduction": "del"})
+    result = knn.fit_predict(synthetic_clusters, synthetic_clusters)
+
+    # DEL removes instances while preserving cost and boundary accuracy
+    assert result.storage < len(synthetic_clusters.y_codes)
     acc = np.mean(np.array(result.predictions) == synthetic_clusters.y_codes)
     assert acc > 0.90
 

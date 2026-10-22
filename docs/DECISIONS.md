@@ -451,7 +451,7 @@ Status: **decided** / **pending**.
 
 ### Instance Reduction Techniques (`reduction.py`)
 
-- **Three registered reduction techniques (`REDUCTION_TECHNIQUES`):**
+- **Four registered reduction techniques (`REDUCTION_TECHNIQUES`):**
   - **FCNN (Fast Condensed Nearest Neighbor, Angiulli 2007):**
     Initializes prototype set $S$ with class centroids/medoids. Iteratively queries representatives for nearest enemies using precomputed distances. Guaranteed 100% training-set consistent (Theorem 3.1).
     - Governed by `--version`: `1` (Centroid rule), `2` (Nearest enemy rule), `3` (Furthest enemy rule), `4` (Random enemy rule).
@@ -464,17 +464,57 @@ Status: **decided** / **pending**.
   - **EENTh (Extended Edited Nearest Neighbor with Threshold, Wilson & Martinez 2000):**
     Consensus-based noise filtering. An instance is retained only if the proportion of its $k$ nearest neighbors agreeing with its label exceeds `--threshold` $\in [0, 1]$ (default 0.0).
     - *Why:* Provides flexible border smoothing and noise cleaning; unified under a single threshold parameter. (decided)
+  - **DEL (Decremental Encoding Length, Wilson & Martinez 2000 Section 4.6 & 3.2.8; Cameron-Jones 1995):**
+    Decremental instance pruning governed by the Minimum Description Length (MDL) encoding length heuristic:
+    $$Cost(m, n, x) = F(m, n) + m \log_2(C) + F(x, n - m) + x \log_2(C - 1)$$
+    where $m$ is the number of retained instances, $n$ is total training set size, $x$ is the number of misclassified training instances (exceptions), and $C$ is the number of target classes.
+    - **Log-Space Combinatorial Sums ($F(a, b)$):**
+      $$F(a, b) = \log^* \left(\sum_{j=0}^a \binom{b}{j}\right)$$
+      In naive arithmetic, evaluating $\sum_{j=0}^a \binom{b}{j}$ overflows standard 64-bit IEEE 754 floating point numbers for $b \ge 1000$ (e.g., $\binom{1000}{500} \approx 2.7 \times 10^{299}$, while `float64` max is $\approx 1.8 \times 10^{308}$). To ensure exact numerical stability:
+      1. Precompute cumulative log-factorials $\ln(i!) = \sum_{k=1}^i \ln(k)$ up to $N$.
+      2. Express each binomial coefficient in log-space: $\ln \binom{b}{j} = \ln(b!) - \ln(j!) - \ln((b-j)!)$.
+      3. Sum terms using the standard Log-Sum-Exp trick: $\ln \sum \exp(z_j) = z_{\max} + \ln \sum \exp(z_j - z_{\max})$.
+      4. Convert to base-2 logarithm ($\log_2(z) = \frac{\ln(z)}{\ln(2)}$) before evaluating Rissanen's universal prior for integers $\log^*(z) = \log_2(c) + \log_2(z) + \log_2(\log_2(z)) + \dots$
+      - *Literature references:* Cameron-Jones (1995), Wilson & Martinez (2000), Quinlan & Rivest (1989), Rissanen (1983), Press et al. (2007, *Numerical Recipes* Section 6.1), and Goodfellow et al. (2016, *Deep Learning* Section 4.1). (decided)
+    - **DEL Pruning Rules:**
+      - An instance is removed during the noise-filtering pass if it is misclassified by its $k$ nearest neighbors **and** dropping it does not increase description length cost ($Cost_{new} \le Cost_{curr}$).
+      - During the decremental pass, candidate prototypes sorted by distance to their nearest enemy are removed if the associate error delta and self-exception check maintain or lower the system encoding length.
+      - Implemented by reusing `drop()` with an `is_del: bool = True` branch. (decided)
+
+- **Object-Oriented Reduction Hierarchy (`reduction.py`):**
+  Each reduction algorithm is implemented as a dedicated subclass inheriting from an abstract `InstanceReduction` base class:
+  - `NoReduction` (method `"none"`): identity wrapper.
+  - `FCNNReduction` (method `"fcnn"`): handles version 1..4.
+  - `DROPReduction` (method `"drop"`): handles version 1..5.
+  - `EENThReduction` (method `"eenth"`): handles threshold $\ge 0.0$.
+  - `DELReduction` (method `"del"`): handles encoding length reduction.
+  - `InstanceReduction.__new__` serves as a polymorphic factory so that `InstanceReduction(params)` or `InstanceReduction("del", k=3)` transparently returns the specialized subclass instance satisfying `isinstance(obj, InstanceReduction)`.
+  - Each subclass overrides `reduce(train, distance_matrix=None)` and validates/prunes its specific hyperparameters. (decided)
+
+- **Model-Agnostic Reduction across Classifiers:**
+  Instance reduction operates directly on `Preprocessed` training data after feature preprocessing (`train.reduce(reducer)` or `reduce_preprocessed(train, reducer)`).
+  - All classifiers (`KNN`, `SVM`, `RandomForest`, `MajorityBaseline`) support reduction and report the retained prototype count in `storage`.
+  - **Reduction inside `prepare_data` instead of `Preprocessor.fit`:**
+    Instance reduction is performed inside each classifier's `prepare_data(train, test)` method, rather than during dataset feature preprocessing (`Preprocessor.fit`):
+    - *Timing Integrity:* `run_fold` times `classifier(train, test)` (which calls `fit_predict`, which delegates to `prepare_data`). This ensures prototype selection runtime (DROP3, FCNN, DEL) is fully captured in the benchmarked `time` metric.
+    - *Caching Independence:* `load_fold` caches feature preprocessing (`@cache`) per `(dataset, fold)`. Keeping reduction model-side avoids cache poisoning across different reduction configurations.
+    - *Storage Percentage Correctness:* `run_fold` receives the unreduced `train` and calculates `storage = 100.0 * result.storage / len(train.y)`. If reduction were in `load_fold`, `len(train.y)` would already be reduced, falsely yielding 100% storage.
+  - **kNN parameter separation:** In `KNN`, the hyperparameters `--k`, `--distance`, and `--voting` are shared between classification and reduction. Passing reduction-specific aliases (`--reduction_k`, `--reduction_distance`, `--reduction_voting`) is strictly rejected with `ValueError` to eliminate ambiguity.
+  - **Non-kNN models parameter separation:** In `SVM`, `RandomForest`, and `MajorityBaseline`, reduction uses `--reduction_k` (default 3), `--reduction_distance` (default `"euclidean"`), and `--reduction_voting` (default `"majority"`); passing `--k` raises `ValueError` instructing the user to pass `--reduction_k`.
+  - Downstream models fit directly on the reduced prototype subset, correctly shrinking training storage and training runtime. (decided)
 
 ### Parameters and Validation (Fail-Fast Philosophy)
 
 - **Strict, fail-fast hyperparameter validation.**
-  `KNN.parse_params` and `InstanceReduction` validate all configuration parameters upfront:
-  - Unknown parameters raise `ValueError: Unknown kNN parameters provided: [...]`.
+  `KNN.parse_params`, `SVM.parse_params`, `RandomForest.parse_params`, and `InstanceReduction` validate all configuration parameters upfront:
+  - Unknown parameters raise `ValueError: Unknown <Model> parameters provided: [...]`.
   - Incompatible reduction parameters raise immediate `ValueError`: passing `version` to EENTh, passing `threshold` to FCNN or DROP, or passing either when reduction is `"none"`.
+  - **Passing reduction parameters without specifying `--reduction` raises `ValueError`:**
+    If any reduction parameter (`reduction_k`, `reduction_distance`, `reduction_voting`, `version`, `threshold`, `distance`, `voting`) is passed when `--reduction` is omitted, execution halts immediately with `ValueError` stating that `--reduction` must be specified, instead of silently dropping the parameter or ignoring user intent.
   - Incompatible parameters passed to `MajorityBaseline` also raise `ValueError`.
     - *Why:* Prevents configuration errors and typos from being silently ignored or causing silent misbehavior during long multi-fold runs. (decided)
 - **Default parameter injection and CSV synchronization.**
-  Default values are injected for omitted parameters (`k=3`, `distance="euclidean"`, `voting="majority"`, `retention="never"`, `reduction="none"`). Active reduction parameters (`version` for FCNN/DROP, `threshold` for EENTh) are synchronized into `self.params` and serialized in the CSV results table. (decided)
+  Default values are injected for omitted parameters (`k=3`, `distance="euclidean"`, `voting="majority"`, `retention="never"`, `reduction="none"`). Active reduction parameters (`version` for FCNN/DROP, `threshold` for EENTh, `reduction_k` for non-kNN models) are synchronized into `self.params` and serialized in the CSV results table. (decided)
 
 ## Hyperparameter Tuning (Grid Search)
 

@@ -4,6 +4,7 @@ from sklearn.ensemble import RandomForestClassifier
 import config
 from experiment_runner import ClassificationResult
 from models.classifier_base import BaseClassifier
+from models.knn.reduction import REDUCTION_PARAM_KEYS, parse_reduction_params
 from preprocessing import Preprocessed
 
 default_params = {
@@ -17,10 +18,20 @@ default_params = {
 }
 
 
+RF_ALLOWED = set(default_params.keys()) | REDUCTION_PARAM_KEYS
+
+
 class RandomForest(BaseClassifier):
     def parse_params(self):
-        # 0. Fail-fast on unknown parameters
-        unknown_params = [p for p in self.params if p not in default_params]
+        # 0. Fail-fast on 'k' parameter (non-kNN models require 'reduction_k')
+        if "k" in self.params:
+            raise ValueError(
+                "Unknown parameter 'k' for Random Forest. "
+                "Use 'reduction_k' to configure neighbor count for reduction."
+            )
+
+        # Fail-fast on unknown parameters
+        unknown_params = [p for p in self.params if p not in RF_ALLOWED]
         if unknown_params:
             raise ValueError(f"Unknown Random Forest parameters provided: {unknown_params}")
 
@@ -68,10 +79,16 @@ class RandomForest(BaseClassifier):
         else:
             self.params["criterion"] = default_params["criterion"]
 
+        # 5. Reduction parsing
+        self.reduction_instance = parse_reduction_params(self.params, is_knn=False)
+        self.rf_params = {k: v for k, v in self.params.items() if k in default_params}
+
     def prepare_data(
         self, train: Preprocessed, test: Preprocessed
-    ) -> [ndarray, ndarray, ndarray, ndarray]:
-        """We prepare the data for the model fit and predict."""
+    ) -> tuple[ndarray, ndarray, ndarray, ndarray]:
+        """Validate and apply reduction if active, then prepare one-hot matrices."""
+        if hasattr(self, "reduction_instance") and self.reduction_instance.method != "none":
+            train = train.reduce(self.reduction_instance)
 
         # We use to_onehot, as we have decided for nominal variables
         train_X = train.to_onehot()
@@ -97,8 +114,8 @@ class RandomForest(BaseClassifier):
         return train_X, train_y, test_X, test_y
 
     def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
-        clf = RandomForestClassifier(**self.params)
         train_X, train_y, test_X, test_y = self.prepare_data(train, test)
+        clf = RandomForestClassifier(**self.rf_params)
         clf.fit(train_X, train_y)
 
         return ClassificationResult(

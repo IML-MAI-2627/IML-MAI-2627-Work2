@@ -5,7 +5,7 @@ import pytest
 
 import config
 from arff_parser import TestMatrix, TrainMatrix, load_fold
-from preprocessing import DEFAULT_DROP, Preprocessor, preprocess_fold
+from preprocessing import DEFAULT_DROP, Preprocessor, preprocess_fold, reduce_preprocessed
 
 TRAIN_ROWS = [
     [0.0, 5.0, "red", "S"],
@@ -307,3 +307,24 @@ def test_rows_with_unknown_class_are_removed_with_warning(train, make_data):
     assert out.y.tolist() == ["yes"]
     assert out.y_codes.tolist() == [1]
     assert out.X_num.shape[0] == out.X_nom.shape[0] == 1
+
+
+def test_preprocessed_reduce_method(train):
+    """Preprocessed.reduce() applies instance reduction directly."""
+    from models.knn.reduction import DROPReduction
+
+    prep = Preprocessor().fit_transform(train)
+    reducer = DROPReduction(version=3, k=1)
+    reduced = prep.reduce(reducer)
+    assert reduced.X_num.shape[0] <= prep.X_num.shape[0]
+    assert len(reduced.y_codes) == reduced.X_num.shape[0]
+
+
+def test_reduce_preprocessed_helper(train):
+    """reduce_preprocessed helper applies reducer to preprocessed data."""
+    from models.knn.reduction import DELReduction
+
+    prep = Preprocessor().fit_transform(train)
+    reducer = DELReduction(k=1)
+    reduced = reduce_preprocessed(prep, reducer)
+    assert reduced.X_num.shape[0] <= prep.X_num.shape[0]

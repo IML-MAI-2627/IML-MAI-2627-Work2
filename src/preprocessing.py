@@ -70,6 +70,19 @@ class Preprocessed:
             names += [f"{name}={value}" for value in values]
         return tuple(names)
 
+    def reduce(self, reducer: object) -> Preprocessed:
+        """Apply an instance reduction technique to this preprocessed dataset."""
+        if hasattr(reducer, "reduce"):
+            return reducer.reduce(self).data
+        return self
+
+
+def reduce_preprocessed(train: Preprocessed, reducer: object) -> Preprocessed:
+    """Apply instance reduction to a preprocessed training dataset."""
+    if hasattr(reducer, "reduce"):
+        return reducer.reduce(train).data
+    return train
+
 
 class Preprocessor:
     """Learns the statistics on the train fold (``fit``) and applies them (``transform``)."""
