@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.8229813664596274,265,57,0.08212333400115313,96.19944211994421,0.0,0.8153055098791532,"[[68,9,1],[5,70,2],[21,19,127]]"
+splice,1,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.839622641509434,267,51,0.07900028499898326,96.65738161559888,0.0,0.8329416777896842,"[[68,6,2],[5,70,2],[19,17,129]]"
+splice,2,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.8490566037735849,270,48,0.0873487999997451,96.86629526462396,0.0,0.8411862614832911,"[[69,6,2],[5,68,3],[17,15,133]]"
+splice,3,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.839622641509434,267,51,0.07534307300011278,96.41364902506963,0.0,0.8382168117942066,"[[70,4,2],[1,71,5],[24,15,126]]"
+splice,4,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.809375,259,61,0.07344265599931532,96.09756097560975,0.0,0.8054655849363147,"[[65,6,7],[2,70,5],[20,21,124]]"
+splice,5,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.8119122257053292,259,60,0.07618629900025553,95.05398815743644,0.0,0.8126011891969339,"[[72,3,2],[3,73,0],[24,28,114]]"
+splice,6,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.838006230529595,269,52,0.07332305800082395,95.60822586266993,0.0,0.8350675717785352,"[[70,4,3],[4,74,1],[21,19,125]]"
+splice,7,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.7955974842767296,253,65,0.07241793600042001,95.54317548746518,0.0,0.7963774232011039,"[[69,4,3],[3,74,0],[31,24,110]]"
+splice,8,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.8138801261829653,258,59,0.07243081700107723,95.37069265576054,0.0,0.8147149564050973,"[[71,3,2],[2,72,2],[26,24,115]]"
+splice,9,kNN,distance=canberra;k=5;reduction=none;retention=oblivion_by_goodness;voting=inverse_distance,0.8275862068965517,264,55,0.07316597499993804,95.78544061302682,0.0,0.8231207963411352,"[[69,5,2],[5,70,1],[25,17,125]]"

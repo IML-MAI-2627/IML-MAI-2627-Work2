@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.9099378881987578,293,29,1.3985630610004591,100.0,0.0,0.902088843207241,"[[75,2,1],[6,69,2],[4,14,149]]"
+splice,1,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.9685534591194969,308,10,0.6840025749988854,100.0,0.0,0.9673790132344955,"[[75,1,0],[0,76,1],[3,5,157]]"
+splice,2,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.9559748427672956,304,14,0.6899322770004801,100.0,0.0,0.9526183202419204,"[[75,1,1],[2,74,0],[3,7,155]]"
+splice,3,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.940251572327044,299,19,0.6930718129988236,100.0,0.0,0.9384512994575888,"[[75,1,0],[1,75,1],[10,6,149]]"
+splice,4,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.95625,306,14,0.6830385939992993,100.0,0.0,0.9498687002657954,"[[73,5,0],[1,76,0],[3,5,157]]"
+splice,5,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.9655172413793104,308,11,0.7733458769998833,100.0,0.0,0.9619055109852656,"[[75,2,0],[1,74,1],[3,4,159]]"
+splice,6,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.940809968847352,302,19,0.8606060410002101,100.0,0.0,0.9368603336619329,"[[75,1,1],[3,75,1],[7,6,152]]"
+splice,7,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.9339622641509434,297,21,0.696635830001469,100.0,0.0,0.92895358023446,"[[74,2,0],[3,73,1],[8,7,150]]"
+splice,8,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.9400630914826499,298,19,0.6999146809994272,100.0,0.0,0.9369725738396625,"[[75,1,0],[2,73,1],[7,8,150]]"
+splice,9,Support Vector Machine,C=0.1;class_weight=balanced;gamma=scale;kernel=rbf;max_iter=-1;random_state=42;tol=0.001,0.9373040752351097,299,20,0.758854624000378,100.0,0.0,0.9338349502202531,"[[73,2,1],[1,73,2],[9,5,153]]"

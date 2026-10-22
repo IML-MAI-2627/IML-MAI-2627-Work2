@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.8136645962732919,262,60,0.07027039300010074,100.0,0.0,0.8100329984624463,"[[71,6,1],[5,70,2],[27,19,121]]"
+splice,1,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.8364779874213837,266,52,0.06395522200000414,100.0,0.0,0.8311298685792613,"[[69,5,2],[5,70,2],[19,19,127]]"
+splice,2,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.8364779874213837,266,52,0.06295641299948329,100.0,0.0,0.8284685939858353,"[[70,6,1],[7,67,2],[20,16,129]]"
+splice,3,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.839622641509434,267,51,0.06308429400087334,100.0,0.0,0.8409880369521927,"[[74,2,0],[2,73,2],[29,16,120]]"
+splice,4,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.8125,260,60,0.06232157399972493,100.0,0.0,0.8110084416057077,"[[71,4,3],[3,69,5],[21,24,120]]"
+splice,5,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.799373040752351,255,64,0.06270370699894556,100.0,0.0,0.8024651747279484,"[[74,2,1],[2,74,0],[29,30,107]]"
+splice,6,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.8286604361370716,266,55,0.06298575300024822,100.0,0.0,0.827078131479276,"[[72,4,1],[4,74,1],[23,22,120]]"
+splice,7,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.7861635220125787,250,68,0.06268125600036001,100.0,0.0,0.7894456258491346,"[[73,2,1],[4,73,0],[37,24,104]]"
+splice,8,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.7854889589905363,249,68,0.06247166700086382,100.0,0.0,0.7874221664499498,"[[69,4,3],[2,72,2],[34,23,108]]"
+splice,9,kNN,distance=heom;k=5;reduction=none;retention=never;voting=inverse_distance,0.8119122257053292,259,60,0.0625223740007641,100.0,0.0,0.810231224922247,"[[72,3,1],[7,69,0],[31,18,118]]"

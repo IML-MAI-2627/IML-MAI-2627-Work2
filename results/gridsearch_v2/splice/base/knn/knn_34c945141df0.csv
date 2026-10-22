@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.7919254658385093,255,67,0.07996601500053657,111.22733612273362,0.0,0.7899532318470626,"[[69,5,4],[7,70,0],[33,18,116]]"
+splice,1,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.8144654088050315,259,59,0.07132601800003613,111.0724233983287,0.0,0.8103139159530103,"[[68,5,3],[5,69,3],[25,18,122]]"
+splice,2,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.7924528301886793,252,66,0.07005440600005386,111.0724233983287,0.0,0.7853314568592458,"[[67,6,4],[9,65,2],[25,20,120]]"
+splice,3,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.8238993710691824,262,56,0.07025694000003568,111.0724233983287,0.0,0.8242785056431757,"[[73,2,1],[3,69,5],[29,16,120]]"
+splice,4,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.803125,257,63,0.07043857700045919,111.14982578397212,0.0,0.7997255876566222,"[[68,6,4],[3,68,6],[21,23,121]]"
+splice,5,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.8025078369905956,256,63,0.07209218799835071,111.11111111111111,0.0,0.803247462919594,"[[72,4,1],[3,72,1],[31,23,112]]"
+splice,6,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.794392523364486,255,66,0.07626002200049697,111.18856744510282,0.0,0.7933658933658934,"[[71,4,2],[6,72,1],[26,27,112]]"
+splice,7,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.7767295597484277,247,71,0.07829394199870876,111.0724233983287,0.0,0.7821143748240206,"[[73,2,1],[2,75,0],[42,24,99]]"
+splice,8,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.7760252365930599,246,71,0.07435123299910629,111.03376261747303,0.0,0.7793000499820534,"[[71,4,1],[1,73,2],[33,30,102]]"
+splice,9,kNN,distance=clark;k=3;reduction=none;retention=always;voting=inverse_distance,0.8119122257053292,259,60,0.07488504600041779,111.11111111111111,0.0,0.8123500651339052,"[[71,3,2],[4,72,0],[32,19,116]]"

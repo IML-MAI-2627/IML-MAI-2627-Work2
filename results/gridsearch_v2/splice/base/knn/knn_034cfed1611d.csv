@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.8136645962732919,262,60,0.06469871500121371,100.0,0.0,0.8100329984624463,"[[71,6,1],[5,70,2],[27,19,121]]"
+splice,1,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.8364779874213837,266,52,0.06182981299934909,100.0,0.0,0.8311298685792613,"[[69,5,2],[5,70,2],[19,19,127]]"
+splice,2,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.8364779874213837,266,52,0.06082871700164105,100.0,0.0,0.8284685939858353,"[[70,6,1],[7,67,2],[20,16,129]]"
+splice,3,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.839622641509434,267,51,0.06195975199989334,100.0,0.0,0.8409880369521927,"[[74,2,0],[2,73,2],[29,16,120]]"
+splice,4,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.8125,260,60,0.061058232000505086,100.0,0.0,0.8110084416057077,"[[71,4,3],[3,69,5],[21,24,120]]"
+splice,5,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.799373040752351,255,64,0.06253782999920077,100.0,0.0,0.8024651747279484,"[[74,2,1],[2,74,0],[29,30,107]]"
+splice,6,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.8286604361370716,266,55,0.06264209700020729,100.0,0.0,0.827078131479276,"[[72,4,1],[4,74,1],[23,22,120]]"
+splice,7,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.7861635220125787,250,68,0.06180804799987527,100.0,0.0,0.7894456258491346,"[[73,2,1],[4,73,0],[37,24,104]]"
+splice,8,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.7854889589905363,249,68,0.061357309999948484,100.0,0.0,0.7874221664499498,"[[69,4,3],[2,72,2],[34,23,108]]"
+splice,9,kNN,distance=canberra;k=5;reduction=none;retention=never;voting=inverse_distance,0.8150470219435737,260,59,0.06162877000133449,100.0,0.0,0.8139588522822055,"[[72,3,1],[6,70,0],[31,18,118]]"

@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.8105590062111802,261,61,0.07654525399993872,102.12691771269178,0.0,0.8063366699411817,"[[69,8,1],[4,72,1],[25,22,120]]"
+splice,1,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.8584905660377359,273,45,0.07264374899932591,101.56685236768803,0.0,0.8528892038743208,"[[71,4,1],[5,70,2],[18,15,132]]"
+splice,2,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.8490566037735849,270,48,0.07243351400029496,101.67130919220055,0.0,0.8455698703370933,"[[72,3,2],[4,69,3],[20,16,129]]"
+splice,3,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.8270440251572327,263,55,0.07289799499994842,101.9150417827298,0.0,0.8272493653852036,"[[71,4,1],[1,73,3],[27,19,119]]"
+splice,4,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.859375,275,45,0.08036276299935707,101.56794425087108,0.0,0.8561298847416826,"[[72,5,1],[2,73,2],[19,16,130]]"
+splice,5,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.8056426332288401,257,62,0.07904562400108261,102.15952629745733,0.0,0.8080227097081029,"[[74,0,3],[4,72,0],[25,30,111]]"
+splice,6,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.838006230529595,269,52,0.08665628000017023,101.81247821540606,0.0,0.8366269103111209,"[[72,5,0],[3,76,0],[19,25,121]]"
+splice,7,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.7735849056603774,246,72,0.09087403199919208,102.50696378830084,0.0,0.7766806934166857,"[[71,3,2],[3,74,0],[35,29,101]]"
+splice,8,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.7981072555205048,253,64,0.07434835899948666,102.22763661677689,0.0,0.8003577145845444,"[[73,3,0],[2,72,2],[30,27,108]]"
+splice,9,kNN,distance=euclidean;k=7;reduction=none;retention=different_class;voting=majority,0.8213166144200627,262,57,0.07422925099854183,101.9853709508882,0.0,0.8204965568957342,"[[72,2,2],[5,70,1],[28,19,120]]"
