@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -1141,3 +1145,63 @@ REDUCTION_TECHNIQUES: dict[str, Callable[..., ReductionResult]] = {
 }
 
 VALID_REDUCTIONS = {"none", "fcnn", "eenth", "drop", "del"}
+
+
+# ---------------------------------------------------------------------------
+# On-disk cache of reduced training sets
+# ---------------------------------------------------------------------------
+# Every technique is deterministic, so the same reducer on the same training fold always keeps
+# the same instances. The grid search applies one reduction to kNN, SVM and RF; with the cache
+# it is computed once. Off unless set_reduction_cache() is called.
+_CACHE_DIR: Path | None = None
+
+
+def set_reduction_cache(path: str | Path | None) -> None:
+    """Enable the cache in ``path`` (None disables it)."""
+    global _CACHE_DIR
+    _CACHE_DIR = Path(path) if path is not None else None
+
+
+def _cache_key(reducer: InstanceReduction, train: Preprocessed) -> str | None:
+    """Hash of the reducer settings and the training data; None if not cacheable."""
+    if callable(reducer.distance) or callable(reducer.voting):
+        return None  # a custom function has no stable name
+    settings = (
+        reducer.method,
+        reducer.k,
+        str(reducer.distance).lower(),
+        str(reducer.voting).lower(),
+        getattr(reducer, "version", None),
+        getattr(reducer, "threshold", None),
+    )
+    digest = hashlib.sha1(repr(settings).encode())
+    for array in (train.X_num, train.X_nom, train.y_codes):
+        digest.update(np.ascontiguousarray(array).tobytes())
+    return digest.hexdigest()
+
+
+def reduce_with_cache(
+    reducer: InstanceReduction, train: Preprocessed
+) -> tuple[Preprocessed, float, float]:
+    """Reduce ``train``; returns (reduced set, reduction seconds, seconds spent in this call).
+
+    The reduction seconds are the ones measured when the reduction was actually computed,
+    also on a cache hit, so the reported times do not depend on the cache.
+    """
+    start = perf_counter()
+    key = _cache_key(reducer, train) if _CACHE_DIR is not None else None
+    path = _CACHE_DIR / f"{key}.npz" if key is not None else None
+    if path is not None and path.exists():
+        cached = np.load(path)
+        reduced = subset_preprocessed(train, cached["indices"])
+        return reduced, float(cached["seconds"]), perf_counter() - start
+
+    D = compute_distance_matrix(train, resolve_distance(reducer.distance))
+    indices = reducer.reduce(train, distance_matrix=D).indices
+    seconds = perf_counter() - start
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp.npz")
+        np.savez(tmp, indices=indices, seconds=seconds)
+        tmp.replace(path)  # atomic: parallel workers never read a half-written file
+    return subset_preprocessed(train, indices), seconds, seconds

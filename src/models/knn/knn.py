@@ -7,12 +7,11 @@ from models.classifier_base import BaseClassifier
 from models.knn.distances import DISTANCES
 from models.knn.knn_utils import (
     check_k,
-    compute_distance_matrix,
     run_kNN,
 )
 from models.knn.reduction import parse_reduction_params
 from models.knn.retention import RETENTION
-from models.knn.voting import VOTING
+from models.knn.voting import VOTE_SCORES, VOTING
 from preprocessing import Preprocessed
 
 default_params = {
@@ -97,10 +96,7 @@ class KNN(BaseClassifier):
                     f"{name} features and labels must have the same number of instances"
                 )
 
-        if hasattr(self, "reduction_instance") and self.reduction_instance.method != "none":
-            dist_fn = DISTANCES[self.params["distance"]]
-            D_train = compute_distance_matrix(train, dist_fn)
-            train = self.reduction_instance.reduce(train, distance_matrix=D_train).data
+        train = self.reduce_train(train)
 
         return train, test
 
@@ -121,9 +117,13 @@ class KNN(BaseClassifier):
             dist_fn,
             voting_fn,
             retention_fn,
+            score_function=VOTE_SCORES[self.params["voting"]] if self.return_scores else None,
         )
 
         return ClassificationResult(
             predictions=run.predictions,
             storage=run.case_base_size,
+            scores=run.scores,
+            reduction_time=self.reduction_time,
+            reduction_wall_time=self.reduction_wall_time,
         )

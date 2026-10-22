@@ -45,12 +45,18 @@ does it internally; parsing, preprocessing and CSV writing are excluded.
 Results can be saved using the following common CSV schema:
 
 ```text
-dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
 ```
 
 For reduction experiments, storage is the percentage of the original
 training instances retained by the classifier. A classifier using the complete
 training set therefore has a storage of 100%.
+
+- `reduction_time`: seconds of `time` spent reducing the training set (0 without reduction);
+  `time - reduction_time` is the time to classify the test fold.
+- `macro_f1`: mean of the per-class F1 (useful on the imbalanced splice).
+- `confusion_matrix`: JSON list of lists, rows = true class, columns = predicted class, in the
+  order of the ARFF header. Read it with `experiment_runner.parse_confusion_matrix`.
 
 ### Running the Models
 
@@ -144,7 +150,7 @@ These parameters are passed as optional flags. If omitted, the model will fall b
     - `--k` (positive integer): Number of neighbours. Default: 3.
 
     - `--distance` (string): Metric for neighbor evaluation, selected from `DISTANCES` in `src/models/knn/distances.py`.
-      Supports single-parameter calls exploiting symmetry via `np.triu_indices` (cutting operations and peak memory by 50%).
+      A single-argument call (`dist(train)`) returns the symmetric train x train matrix.
       Must be one of:
       - `euclidean`: Minkowski $r=2$ with nominal overlap on one-hot representation.
       - `manhattan`: Minkowski $r=1$ with nominal overlap on one-hot representation.
@@ -199,7 +205,7 @@ Instance reduction algorithms select a representative subset of training instanc
 - `--reduction_k` (positive integer): Number of nearest neighbors used by instance reduction when executing non-kNN models (`svm`, `rf`, `baseline`). Default: 3. *(Forbidden for `knn`, which uses `--k`)*.
 
 - `--version` (integer): Algorithm variant/rule. Exclusive to `--reduction fcnn` and `--reduction drop`:
-  - For `fcnn`: `1` (Centroid rule), `2` (Nearest enemy rule), `3` (Furthest enemy rule), `4` (Random enemy rule). Default: 1.
+  - For `fcnn`: `1` (each prototype adds its nearest enemy), `2` (each prototype adds the medoid of its enemies), `3` / `4` (as 1 / 2 but one instance per iteration). Default: 1.
   - For `drop`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN filtering), `4` (DROP4), `5` (DROP5). Default: 3.
   *(Forbidden with `--reduction eenth`, `--reduction del`, or `--reduction none`)*.
 
@@ -350,6 +356,65 @@ results/gridsearch/
 * **`*.csv` Files**: Each evaluated configuration saves its 10-fold results to its own CSV file. This enables aggressive
   checkpointing: if the script is interrupted, it will instantly resume where it left off without re-running completed
   configurations.
+
+## Grid Search v2 (final experiments, with and without reduction)
+
+`experiments/grid_search_v2.py` runs every experiment of the assignment and the statistical tests
+that answer each question. The reasoning and the list of tests are in `docs/DECISIONS.md`
+("Grid search v2"). Run from the project root:
+
+```bash
+# everything: run the grids, then the tests (both datasets)
+python experiments/grid_search_v2.py --dataset all --stage all
+
+# only one dataset, or only one stage
+python experiments/grid_search_v2.py --dataset splice --stage run
+python experiments/grid_search_v2.py --dataset splice --stage evaluate
+```
+
+Options:
+
+- `--dataset` `splice`, `vowel` or `all` (default `all`). Datasets are always analysed separately.
+- `--stage` `run` (experiments), `evaluate` (tests and reports from the CSVs) or `all` (default).
+- `--out` output folder (default `results/gridsearch_v2`).
+- `--jobs N` parallel processes (default 1). Use 1 for the final times: parallel processes
+  compete for the CPU and inflate them. `N > 1` is fine to get accuracies quickly.
+- `--reduce-top N` how many of the best kNN configurations get every reduction technique
+  (default 3; the best one is the `reduction_kNNAlgorithm`, the others check robustness).
+
+`run` has three phases: (1) full kNN / SVM / RF grids without reduction; (2) every
+reduction variant (FCNN, EENTh, DROP3, DEL) on the best kNN configurations; (3) the best SVM and RF trained on the reduced set of each technique. It is
+resumable: a configuration whose CSV exists is skipped, so an interrupted run can simply be
+started again.
+
+Output (`results/gridsearch_v2/`):
+
+```text
+results/gridsearch_v2/
+├── winners.json                 # parameters of the winners (used by plot_winners.py)
+└── <dataset>/
+    ├── report.md                # tables and every test, per question of the assignment
+    ├── tests.csv                # one row per test (question, test, p-value, winner, post-hoc)
+    ├── summary.csv              # one row per configuration (means over the 10 folds)
+    ├── figures/cd_*.png         # CD diagrams of the significant Friedman tests
+    ├── base/<model>/*.csv       # one CSV per configuration without reduction
+    └── reduction/<model>/*.csv  # one CSV per configuration with reduction
+```
+
+### Plots of the winners (ROC, PR, confusion matrices, trade-offs)
+
+After `--stage evaluate`:
+
+```bash
+python experiments/plot_winners.py --results results/gridsearch_v2
+```
+
+It retrains the winners in `winners.json` (best kNN, SVM and RF, without and with the best
+reduction technique) on the 10 folds with per-class scores, checks that the accuracy is the
+one of the grid search, caches the scores in `plots/cache/` and writes to
+`results/gridsearch_v2/plots/`: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` and
+`tradeoff_<dataset>.png` (accuracy vs storage and vs solve time). `--retrain` ignores the
+cache; `--dataset` limits it to one dataset.
 
 ## Layout
 

@@ -25,8 +25,7 @@ class MajorityBaseline(BaseClassifier):
         self, train: Preprocessed, test: Preprocessed
     ) -> tuple[Preprocessed, Preprocessed]:
         """Validate and apply instance reduction if active."""
-        if hasattr(self, "reduction_instance") and self.reduction_instance.method != "none":
-            train = train.reduce(self.reduction_instance)
+        train = self.reduce_train(train)
         return train, test
 
     def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
@@ -35,4 +34,6 @@ class MajorityBaseline(BaseClassifier):
         return ClassificationResult(
             predictions=[majority_class] * len(test.y_codes),
             storage=len(train.y),
+            reduction_time=self.reduction_time,
+            reduction_wall_time=self.reduction_wall_time,
         )

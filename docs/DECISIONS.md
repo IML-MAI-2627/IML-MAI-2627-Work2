@@ -192,9 +192,26 @@ Status: **decided** / **pending**.
     - *Why:* stochastic models receive the same random-state sequence when a configuration is
       repeated, while all folds in that configuration remain reproducible. (decided)
 - **Results use one common CSV schema:**
-  `dataset, fold, model, params, accuracy, n_correct, n_incorrect, time, storage`.
+  `dataset, fold, model, params, accuracy, n_correct, n_incorrect, time, storage, reduction_time, macro_f1, confusion_matrix`.
     - *Why:* all kNN, SVM, Random Forest, and reduced-model experiments can be stored and compared using the same
       structure. (decided)
+- **The confusion matrix of every fold is stored** (`confusion_matrix`, JSON list of lists; row = true class,
+  column = predicted class, both in the order of the ARFF header `class_values`; read it back with
+  `experiment_runner.parse_confusion_matrix`).
+    - *Why:* any other metric (per-class recall, precision, balanced accuracy, ...) and the confusion-matrix plots can
+      be derived later from the CSVs without re-running anything, so we do not need to add more metric columns. (decided)
+- **Two extra metrics, no more:**
+    - `macro_f1`: unweighted mean of the per-class F1, over the classes present in the test fold or in the predictions
+      (same rule as scikit-learn's default; a class never predicted gets F1 = 0). *Why:* splice is imbalanced (class N
+      ~52%); accuracy alone can hide a model that neglects the minority classes EI/IE. (decided)
+    - `reduction_time`: seconds of the timed call spent reducing the training set (0 without reduction). `time` still
+      covers the whole call (see "Reduction inside `prepare_data`"); `time - reduction_time` is the time to solve the
+      test cases. *Why:* without it the reduced models are always "slower" and the question "does reduction improve
+      efficiency?" cannot be answered: reduction is a one-off cost, the gain is in classifying. (decided)
+- **Optional per-class scores** (`ClassificationResult.scores`, only when `classifier.return_scores = True`): kNN vote
+  shares (majority) or normalised 1/d weights (inverse distance), SVM `decision_function`, RF `predict_proba`. Used
+  only for ROC / PR curves. Off by default so the timed experiments do not pay for them; predictions are identical
+  with or without them (tested). (decided)
 - **The experiment runner is model-agnostic.** Model-specific algorithms and parameters stay in their own classifier
   implementations; the runner only orchestrates execution and collects common metrics. (decided)
 - **Preprocessed folds are cached** (`load_fold`, `functools.lru_cache`). Each fold is parsed and preprocessed once per
@@ -415,11 +432,15 @@ Status: **decided** / **pending**.
 
 ### Distance Calculations and Symmetric Optimization (`distances.py`)
 
-- **Exploiting matrix symmetry with `np.triu_indices` for single-dataset distance calls.**
-  All distance metrics support single-argument calls (`dist_fn(data)`). When computing pairwise distances of a dataset with itself (e.g. `train` x `train` for reduction, or `test` x `test` for dynamic retention), only the upper triangle $i < j$ ($N(N-1)/2$ pairs) is evaluated.
-    - *Why:* Slashes arithmetic operations (subtractions, squares, sums) by **50%**. Avoids allocating the full 3D intermediate difference array $(N, N, d)$ in memory, cutting peak intermediate RAM consumption by **50%**. Also compares nominal codes directly (`data.X_nom[i] != data.X_nom[j]`) without inflating one-hot matrices. (decided)
+- **Single-argument calls (`dist_fn(data)`) give the symmetric train x train matrix through the normal path.**
+  The first version evaluated only the upper triangle with `np.triu_indices`. Measured on splice fold 0
+  (2871 train cases): **2.5 s and 4.3 GB peak memory**, because `X_nom[i]` / `X_nom[j]` gather two
+  (4.1M x 60) int64 arrays. The normal path counts nominal mismatches with one product of 0/1 one-hot matrices:
+  **0.26 s and ~0.4 GB**, same values (test `test_distance_single_argument_matches_symmetric`).
+    - *Why:* half the arithmetic does not help when the gathering dominates; a BLAS product is ~10x faster and the
+      memory peak made parallel runs on splice impossible. (decided, replaces the triu version)
 - **Reconstruction and retention of the full $(N, N)$ symmetric 2D matrix.**
-  Although only the upper triangle is computed, the values are mirrored across the diagonal to yield a full $(N, N)$ NumPy matrix with exact zeros on the diagonal.
+  `compute_distance_matrix` returns the full $(N, N)$ NumPy matrix with exact zeros on the diagonal.
     - *Why:* All neighbor queries in FCNN (nearest enemy search), DROP (associates search and sorting), EENTh (consensus checking), and retention (candidate filtering) rely on **$O(1)$ vectorized row slicing** (`D[p, :]` and `D[p, candidates]`). Storing a condensed 1D distance array would require complex index arithmetic and prevent NumPy's optimized C-level row slicing, drastically slowing down neighbor lookups in Python. The full 2D float64 matrix takes minimal storage (~8 MB for $N=1000$), so keeping the 2D matrix is optimal. (decided)
 - **Five registered distance metrics (`DISTANCES`):**
   - `euclidean`: Minkowski $r=2$ with nominal overlap on one-hot representation.
@@ -454,7 +475,9 @@ Status: **decided** / **pending**.
 - **Four registered reduction techniques (`REDUCTION_TECHNIQUES`):**
   - **FCNN (Fast Condensed Nearest Neighbor, Angiulli 2007):**
     Initializes prototype set $S$ with class centroids/medoids. Iteratively queries representatives for nearest enemies using precomputed distances. Guaranteed 100% training-set consistent (Theorem 3.1).
-    - Governed by `--version`: `1` (Centroid rule), `2` (Nearest enemy rule), `3` (Furthest enemy rule), `4` (Random enemy rule).
+    - Governed by `--version` (Angiulli 2007, with medoids instead of centroids): `1` every prototype adds its
+      nearest Voronoi enemy; `2` every prototype adds the medoid of its enemies; `3` and `4` add only one instance
+      per iteration (the nearest enemy / the enemy medoid of the prototype with most enemies), slower but smaller.
     - *Why:* The centroid rule provides clean class anchors; enemy selection rules balance boundary tightness vs storage compression. (decided)
   - **DROP (Decremental Reduction Optimization Procedure, Wilson & Martinez 2000):**
     Prunes instances whose removal does not reduce the leave-one-out classification accuracy of their *associates* (instances that have $p$ in their $k+1$ nearest neighbors).
@@ -589,7 +612,130 @@ Status: **decided** / **pending**.
 
 ---
 
+## Grid search v2 (`experiments/grid_search_v2.py`)
+
+One script runs every experiment of the assignment, with and without instance reduction, and answers each
+question of Section 1.3 with a pre-defined test. `experiments/grid_search.py` (v1) is kept for the results we
+already have; v2 replaces it for the final report.
+
+### Ground rules (decided)
+
+- **Each dataset on its own; the 10 folds are the blocks** of every test (N = 10). splice and vowel are never
+  merged (see "Why datasets are NEVER merged").
+- **Selection rule fixed before seeing results:** the winner of any group is the highest mean accuracy over the
+  10 folds; ties -> lower mean `time` -> configuration name. Tests never pick the winner; they say whether it can
+  be distinguished from the alternatives.
+- **Test by number of configurations** (Demšar 2006): 2 -> Wilcoxon signed-ranks (exact, t-test as reference);
+  >= 3 -> Friedman with Iman-Davenport, and only if p < 0.05 a post-hoc: Nemenyi (all pairs) or Bonferroni-Dunn
+  when there is a natural control (the unreduced model). Control comparisons made with Wilcoxon are Holm-corrected.
+  alpha = 0.05. A CD diagram is saved for every significant Friedman.
+- **Equal conditions for time:** default `--jobs 1` (parallel processes compete for the CPU and inflate times) and
+  RF with `n_jobs=1`, like our kNN. `--jobs N` is fine to get accuracies fast, but then do not use the times.
+- **Reproducible and resumable:** seed reset per configuration (`run_experiment`), one CSV per configuration
+  written atomically (temp file + rename), existing CSVs are skipped.
+- **Reduction cache** (`results/gridsearch_v2/reduction_cache/`, `reduce_with_cache` in `reduction.py`): the
+  reduced set depends only on the technique, its variant, K, distance, voting and the training fold, never on the
+  model trained on it or on the kNN retention. Phase 3 reuses the four reductions of the best kNN for SVM and RF
+  (on splice ~35 s per fold each time, DROP3 and DEL dominate). The key is a hash of those settings and of the
+  training arrays; all techniques are deterministic, so a hit gives exactly the same instances.
+    - *Time stays comparable:* on a hit, `reduction_time` is the time measured when the reduction was computed and
+      `time` is charged with it (`run_fold` adds the difference), so the CSVs mean the same with or without the
+      cache. Delete the folder to force recomputation. (decided)
+- **In-process execution** (`run_experiment` directly, optional process pool) instead of one subprocess per
+  configuration as in v1: each process parses and preprocesses every fold once (`load_fold` cache).
+
+### Pipeline (per dataset)
+
+`--stage run` (three phases, each needs the winners of the previous one), then `--stage evaluate`.
+
+| Phase | What runs | Size |
+|---|---|---|
+| 1. base | kNN full grid: K {3,5,7} x 5 distances x 2 votes x 4 retentions; SVM grid (C, kernel linear/rbf/poly, gamma, class_weight, coef0/degree for poly); RF grid (n_estimators {50..300}, gini/entropy, max_depth, max_features, min_samples_leaf) | 120 + 168 + 96 |
+| 2. kNN reduction | every reduction variant on the **top-`--reduce-top` kNN** (default 3): FCNN v1/v2 (condensed), EENTh threshold 0/0.5/0.7 (edited), DROP3 and DEL (hybrids) | 7 x 3 |
+| 3. SVM/RF reduction | best SVM and best RF trained on the reduced set of each technique (its best variant on the best kNN, with the best kNN's K, distance and voting) | 4 x 2 |
+
+- **Why the full kNN, SVM and RF grids and not only top candidates:** they are cheap (kNN ~0.1 s per fold, SVM/RF
+  seconds), so pruning is only needed for the *tests*, not for running.
+- **Why reduction only on the top kNN configurations:** it is what the assignment asks (`reduction_kNNAlgorithm` =
+  best kNN + reduction) and reducing is expensive (splice fold, K=3: FCNN 1.4 s, EENTh 0.5 s, DROP3 12 s, DEL 21 s).
+  The top-3 instead of only the winner (both modes in one run; `--reduce-top 1` gives only the winner) checks
+  whether the ranking of the kNN configurations survives the reduction (descriptive table, no test).
+- **Why the SVM/RF reduced set uses the kNN winner's settings and the variant chosen on the kNN:** the three
+  models are compared on the same prototypes, and the variant is not chosen on SVM/RF results (no second
+  selection on the data we test them on).
+- **DROP4 is not in the grid:** our implementation is O(m n^2 log n) in Python (16 s per fold on vowel, far more on
+  splice). DROP3 and DEL cover the hybrid family. **RNN, GCNN, RENN, RNGE** are not implemented.
+
+### Tests and the question each one answers (`--stage evaluate`)
+
+| # | Question (Section 1.3) | Columns compared | Test |
+|---|---|---|---|
+| 1 | Best K / similarity function / is voting useful / retention, for kNN | levels of each factor: (a) **main effect** = per fold, mean accuracy over all configurations of the level; (b) **best configuration of each level** | Wilcoxon (2 levels) or Friedman + Nemenyi |
+| 2 | Best kernel / class_weight for SVM | same (a) and (b) for `kernel`, `class_weight` | idem |
+| 3 | Best criterion / n_estimators / max_features for RF | same (a) and (b) | idem |
+| 4 | Is the best kNN / SVM / RF distinguishable from the runner-ups? | top-5 configurations of the model | Friedman + Nemenyi |
+| 5 | SVM and RF in front of the best kNN (accuracy and efficiency) | best kNN, best SVM, best RF | Friedman + Nemenyi on accuracy and on time; Wilcoxon kNN vs SVM and kNN vs RF with Holm |
+| 6 | Best reduction technique for kNN, or reduction does not help | best kNN without reduction (control) + best variant of FCNN, EENTh, DROP3, DEL | Friedman + Bonferroni-Dunn vs control, on accuracy and on `solve_time`; storage as a table |
+| 7 | Retention vs reduction | best configuration of each retention policy + reduced best kNN (4 techniques) | Friedman + Nemenyi on accuracy; storage and time as a table |
+| 8 | Does reduction change SVM / RF? | best SVM (or RF) full (control) + the 4 reduced versions | Friedman + Bonferroni-Dunn on accuracy and `solve_time` |
+| 9 | kNN vs SVM vs RF when all are reduced | per technique: kNN, SVM, RF on the same reduced set | Friedman + Nemenyi on accuracy and time |
+
+Feature selection vs sample reduction (and combining them) is answered by reasoning only, as the assignment says.
+
+- **Main effect and best-per-level, both:** the best-per-level column is what "best K" literally means, but it is
+  chosen on the same folds it is tested on, and a level with more configurations has more chances to win (e.g.
+  the poly kernel has 144 SVM configurations, linear 8). The main effect involves no selection at all, so it is the
+  clean test; when both agree the conclusion is solid, when they disagree we report it (the factor helps only
+  when tuned together with the others).
+- **Why not Friedman over the whole grid:** with k = 120 (kNN) or 168 (SVM) and N = 10 the Nemenyi CD is far larger
+  than any rank gap (power loss); the factor tests and the top-5 test keep k small.
+- **Efficiency:** `time` (fit + predict, including the reduction) for the model comparisons, because an eager model
+  pays its training at solve time too; `solve_time = time - reduction_time` for the reduction comparisons, because
+  the reduction is a one-off cost and the question is whether the reduced case base is faster to use.
+- **Metric for the tests: accuracy** (as the assignment). `macro_f1` is reported in every table; for splice
+  (imbalanced) we look at it when accuracy is close.
+
+### Double dipping: where it is avoided and where it is not
+
+- **Unavoidable:** with no validation set, the configurations are selected on the same 10 test folds that the tests
+  use. The tests 4-9 compare *selected* winners, so their p-values are optimistic (the best of many looks better
+  than it is) and the reported accuracies are an upper bound (see "Optimization Bias").
+- **Avoided where possible:** (1) the main-effect tests involve no selection; (2) the reduction variant is chosen
+  on kNN and then applied, not re-chosen, to SVM and RF; (3) the selection rule is fixed in advance and the tests
+  never choose the winner, so we do not test, filter by p-value and test again on the survivors; (4) the top-5
+  test is reported as "can the winner be told apart from its runner-ups", which is the conservative reading.
+- **Considered and rejected:** select on folds 0-4 and test on folds 5-9. It is honest, but with N = 5 the exact
+  Wilcoxon cannot reach p < 0.05 (smallest two-sided p = 2/32 = 0.0625) and Friedman loses most of its power.
+
+### Outputs (`results/gridsearch_v2/`)
+
+- `<dataset>/base/<model>/*.csv`, `<dataset>/reduction/<model>/*.csv`: one CSV per configuration (the name is a
+  hash of the parameters; the parameters are inside the CSV).
+- `<dataset>/summary.csv`: one row per configuration (mean accuracy, std, macro F1, time, solve time, storage).
+- `<dataset>/tests.csv` and `<dataset>/report.md`: every test (question, k, statistic, p-value, winner, post-hoc)
+  and the tables per question. `<dataset>/figures/cd_*.png`: CD diagrams.
+- `winners.json`: parameters of the winners (best kNN / SVM / RF, best variant of each technique, best reduction,
+  and the reduced winners) for `plot_winners.py`.
+
+### Winner plots (`experiments/plot_winners.py`)
+
+- **Retrain the winners instead of saving every model during the grid.** Retraining a winner on 10 folds takes
+  seconds and is exact (fixed seeds; the script checks that the accuracy equals the grid search). Saving every
+  fitted model of the grid (~400 configurations x 10 folds, RF up to 300 trees) would take GBs to keep ~6 of them.
+  What the plots need are the scores, so those are cached per winner (`plots/cache/*.npz`); plots can be redrawn
+  without retraining. The kNN "model" is just its (reduced) case base anyway. (decided)
+- **ROC / PR pool the out-of-fold scores of the 10 test folds** (each instance scored once). Multiclass is
+  one-vs-rest: ROC macro-averaged, PR micro-averaged; legends give macro AUC / macro AP. *Limitation:* SVM decision
+  values of different folds are not on exactly the same scale; pooling is the usual simplification. kNN scores
+  are vote shares (few distinct values for small K), so its curves have few steps. (decided)
+- `sklearn.metrics` is used only to draw the curves of every model, never inside the kNN or the reduction.
+- Plots: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` (row-normalised colour, counts for splice),
+  `tradeoff_<dataset>.png` (accuracy vs storage and vs solve time for each model and technique).
+
+---
+
 ## Methods and libraries used
+
 
 | Area                                 | Method / strategy                                                                                                   | Implemented with                                                                                 | Where                                 |
 |--------------------------------------|---------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|---------------------------------------|
@@ -620,6 +766,9 @@ Status: **decided** / **pending**.
 | Instance reduction                   | FCNN (rules 1..4), EENTh (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
 | Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `experiments/grid_search.py`          |
 | Grid Search analysis                 | Extracting optimal models using grid_search and applying statistical tests                                          | Own code                                                                                         | `experiments/grid_search.py`          |
+| Grid search v2                       | Full pipeline with and without reduction, tests per question, winners                                              | Own code + `concurrent.futures` (stdlib)                                                         | `experiments/grid_search_v2.py`       |
+| Winner plots                         | ROC (macro OvR), PR (micro), confusion matrices, accuracy vs storage / time                                          | `sklearn.metrics` (curves only, not in the kNN), `matplotlib`                                    | `experiments/plot_winners.py`         |
+| Holm correction                      | Step-down adjusted p-values for control comparisons                                                                 | Own code                                                                                         | `src/stats.py`                        |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |
 | EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                                    | `experiments/eda.py`                  |
 | EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                                         | `experiments/eda.py`                  |

@@ -233,10 +233,12 @@ def evaluate_results(out_dir: Path):
 
     for file in csv_files:
         try:
-            df = pd.read_csv(
-                file, names=columns, header=0 if "dataset" in open(file).readline() else None
-            )
-            df_list.append(df)
+            # Files written by save_results have a header (and may have extra columns, e.g.
+            # macro_f1 / confusion_matrix); only header-less files need the column names.
+            with open(file) as handle:
+                has_header = "dataset" in handle.readline()
+            df = pd.read_csv(file) if has_header else pd.read_csv(file, names=columns)
+            df_list.append(df[columns])
         except Exception as e:
             print(f"Error reading {file}: {e}")
 

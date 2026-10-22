@@ -49,10 +49,12 @@ class KNNRun:
 
     predictions: list[int]
     case_base_size: int
+    scores: np.ndarray | None = None  # (n_test, n_classes) vote shares, only if requested
 
 
 DistanceFunction = Callable[..., np.ndarray]
 VotingFunction = Callable[[Sequence[Neighbor]], int]
+ScoreFunction = Callable[[Sequence[Neighbor], int], np.ndarray]
 
 
 # ---------------------------------------------------------------------------
@@ -253,13 +255,17 @@ def predict(
     neighbors: Neighbors,
     k: int,
     voting_function: VotingFunction,
-) -> list[int]:
+    score_function: ScoreFunction | None = None,
+    n_classes: int = 0,
+) -> list[int] | tuple[list[int], np.ndarray]:
     """Predict one class code per test case using its first k nearest neighbors.
 
+    With ``score_function`` it also returns the (n_test, n_classes) vote shares.
     Used by: run_kNN() in the fast batch path without retention.
     """
     k = check_k(k, neighbors.indices.shape[1])
     predictions = []
+    scores = []
 
     for indices, distances, labels in zip(
         neighbors.indices, neighbors.distances, neighbors.labels, strict=True
@@ -269,7 +275,11 @@ def predict(
             for i, d, c in zip(indices[:k], distances[:k], labels[:k], strict=True)
         ]
         predictions.append(_check_vote(voting_function(nearest)))
+        if score_function is not None:
+            scores.append(score_function(nearest, n_classes))
 
+    if score_function is not None:
+        return predictions, np.asarray(scores)
     return predictions
 
 
@@ -286,6 +296,8 @@ def _run_with_retention(
     voting_function: VotingFunction,
     retention_function: RetentionFunction | OblivionByGoodness,
     distance_matrix: np.ndarray | None = None,
+    score_function: ScoreFunction | None = None,
+    n_classes: int = 0,
 ) -> KNNRun:
     """Solve test cases sequentially, updating the case base according to retention policy.
 
@@ -315,6 +327,7 @@ def _run_with_retention(
     goodness = og.init_goodness(n_train + n_test) if og is not None else np.zeros(n_train + n_test)
 
     predictions = []
+    scores = []
     for i in range(n_test):
         candidates = np.flatnonzero(active)
         order = candidates[np.argsort(base_distances[i, candidates], kind="stable")[:k]]
@@ -324,6 +337,8 @@ def _run_with_retention(
         ]
         prediction = _check_vote(voting_function(nearest))
         predictions.append(prediction)
+        if score_function is not None:
+            scores.append(score_function(nearest, n_classes))
         true_label = int(test.y_codes[i])
         if og is not None:
             for j in order:
@@ -332,7 +347,11 @@ def _run_with_retention(
         elif retention_function(prediction, true_label):
             active[n_train + i] = True
 
-    return KNNRun(predictions=predictions, case_base_size=int(active.sum()))
+    return KNNRun(
+        predictions=predictions,
+        case_base_size=int(active.sum()),
+        scores=np.asarray(scores) if score_function is not None else None,
+    )
 
 
 def run_kNN(
@@ -343,16 +362,22 @@ def run_kNN(
     voting_function: VotingFunction,
     retention_function: RetentionFunction | OblivionByGoodness | None = None,
     distance_matrix: np.ndarray | None = None,
+    score_function: ScoreFunction | None = None,
 ) -> KNNRun:
     """Run kNN classification with optional retention and optional precomputed distances.
 
+    ``score_function`` (optional) also returns per-class vote shares, for ROC / PR curves.
     Used by: KNN.fit_predict() to execute standard or precomputed kNN evaluation.
     """
+    n_classes = len(train.class_values)
     if retention_function is None:
         neighbors = nearest_neighbors(
             train, test, distance_function, k_max=k, distance_matrix=distance_matrix
         )
-        return KNNRun(predict(neighbors, k, voting_function), len(train.y_codes))
+        if score_function is None:
+            return KNNRun(predict(neighbors, k, voting_function), len(train.y_codes))
+        predictions, scores = predict(neighbors, k, voting_function, score_function, n_classes)
+        return KNNRun(predictions, len(train.y_codes), scores)
     return _run_with_retention(
         train,
         test,
@@ -361,4 +386,6 @@ def run_kNN(
         voting_function,
         retention_function,
         distance_matrix=distance_matrix,
+        score_function=score_function,
+        n_classes=n_classes,
     )

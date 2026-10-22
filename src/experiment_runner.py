@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
@@ -17,10 +18,19 @@ from preprocessing import Preprocessed, preprocess_fold
 
 @dataclass(frozen=True)
 class ClassificationResult:
-    """Predictions and number of training instances retained by a classifier."""
+    """Predictions and number of training instances retained by a classifier.
+
+    ``scores`` (n_test, n_classes) is optional: per-class scores for ROC / PR curves,
+    filled only when the classifier is asked for them (``return_scores``).
+    """
 
     predictions: list[int]
     storage: int
+    scores: np.ndarray | None = None
+    reduction_time: float = 0.0  # part of the timed call spent reducing the training set
+    # Seconds of reduction actually spent in this call; smaller than reduction_time when the
+    # reduced set came from the cache. None means equal to reduction_time.
+    reduction_wall_time: float | None = None
 
 
 Classifier = Callable[
@@ -45,9 +55,54 @@ class ExperimentResult:
     n_incorrect: int
     time: float
     storage: float
+    reduction_time: float
+    macro_f1: float
+    confusion_matrix: str  # JSON list of lists: rows = true class, columns = predicted
 
 
 Params = dict[str, object]
+
+# Common CSV schema of every experiment (one row per fold).
+CSV_COLUMNS = (
+    "dataset",
+    "fold",
+    "model",
+    "params",
+    "accuracy",
+    "n_correct",
+    "n_incorrect",
+    "time",
+    "storage",
+    "reduction_time",
+    "macro_f1",
+    "confusion_matrix",
+)
+
+
+def confusion_matrix(y_true, y_pred, n_classes: int) -> np.ndarray:
+    """(n_classes, n_classes) counts: row = true class code, column = predicted class code."""
+    matrix = np.zeros((n_classes, n_classes), dtype=np.int64)
+    np.add.at(matrix, (np.asarray(y_true, dtype=np.int64), np.asarray(y_pred, dtype=np.int64)), 1)
+    return matrix
+
+
+def macro_f1(matrix: np.ndarray) -> float:
+    """Unweighted mean of the per-class F1 = 2TP / (2TP + FP + FN).
+
+    Averaged over the classes that appear in the test fold or in the predictions (the same
+    rule as scikit-learn's default); a class that is never predicted gets F1 = 0.
+    """
+    tp = np.diag(matrix).astype(float)
+    denominator = matrix.sum(axis=0) + matrix.sum(axis=1)  # = 2TP + FP + FN
+    present = denominator > 0
+    if not present.any():
+        return 0.0
+    return float(np.mean(2 * tp[present] / denominator[present]))
+
+
+def parse_confusion_matrix(text: str) -> np.ndarray:
+    """Read back the ``confusion_matrix`` column of a results CSV."""
+    return np.asarray(json.loads(text), dtype=np.int64)
 
 
 def format_params(params: Params | None) -> str:
@@ -76,6 +131,12 @@ def run_fold(
     start = perf_counter()
     result = classifier(train, test)
     elapsed = perf_counter() - start
+    # A cached reduction is charged with its originally measured time, so `time` means the same
+    # with or without the reduction cache.
+    reduction_time = float(getattr(result, "reduction_time", 0.0))
+    wall = getattr(result, "reduction_wall_time", None)
+    if wall is not None:
+        elapsed += reduction_time - float(wall)
 
     # SVM and RF from sklearn return a np.ndarray.
     predictions = list(result.predictions)
@@ -107,6 +168,12 @@ def run_fold(
     accuracy = n_correct / len(predictions) if len(predictions) > 0 else 0.0
     storage = 100.0 * result.storage / len(train.y)
 
+    # Class order = position in the ARFF header (class_values), the same in every fold.
+    n_classes = len(getattr(test, "class_values", ())) or (
+        max([*predictions, *map(int, test.y_codes)], default=-1) + 1
+    )
+    matrix = confusion_matrix(test.y_codes, predictions, n_classes)
+
     return ExperimentResult(
         dataset=dataset,
         fold=fold,
@@ -117,6 +184,9 @@ def run_fold(
         n_incorrect=n_incorrect,
         time=elapsed,
         storage=storage,
+        reduction_time=reduction_time,
+        macro_f1=macro_f1(matrix),
+        confusion_matrix=json.dumps(matrix.tolist(), separators=(",", ":")),
     )
 
 
@@ -150,34 +220,7 @@ def save_results(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "dataset",
-                "fold",
-                "model",
-                "params",
-                "accuracy",
-                "n_correct",
-                "n_incorrect",
-                "time",
-                "storage",
-            ],
-        )
-
+        writer = csv.DictWriter(file, fieldnames=CSV_COLUMNS)
         writer.writeheader()
-
         for result in results:
-            writer.writerow(
-                {
-                    "dataset": result.dataset,
-                    "fold": result.fold,
-                    "model": result.model,
-                    "params": result.params,
-                    "accuracy": result.accuracy,
-                    "n_correct": result.n_correct,
-                    "n_incorrect": result.n_incorrect,
-                    "time": result.time,
-                    "storage": result.storage,
-                }
-            )
+            writer.writerow({column: getattr(result, column) for column in CSV_COLUMNS})

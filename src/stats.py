@@ -26,8 +26,8 @@ RESULT_COLUMNS = (
     "time",
     "storage",
 )
-METRICS = ("accuracy", "time", "storage")
-HIGHER_IS_BETTER = {"accuracy": True, "time": False, "storage": False}
+METRICS = ("accuracy", "macro_f1", "time", "storage")
+HIGHER_IS_BETTER = {"accuracy": True, "macro_f1": True, "time": False, "storage": False}
 
 
 @dataclass(frozen=True)
@@ -341,6 +341,18 @@ def compare_two(
         t_statistic=float(t_result.statistic),
         t_p_value=float(t_result.pvalue),
     )
+
+
+def holm_adjust(p_values: pd.Series) -> pd.Series:
+    """Holm step-down adjusted p-values for a family of m tests (Demšar 2006, Section 3.2.2).
+
+    The i-th smallest p-value is multiplied by (m - i + 1), made non-decreasing and capped
+    at 1; a hypothesis is rejected when its adjusted p-value is below alpha.
+    """
+    ordered = p_values.astype(float).sort_values()
+    factors = pd.Series(range(len(ordered), 0, -1), index=ordered.index, dtype=float)
+    adjusted = (ordered * factors).cummax().clip(upper=1.0)
+    return adjusted.reindex(p_values.index)
 
 
 def nemenyi_groups(result: PostHocResult) -> list[list[str]]:

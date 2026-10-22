@@ -27,36 +27,6 @@ def _nominal_mismatches(train: Preprocessed, test: Preprocessed) -> np.ndarray:
     return n_nom - matches
 
 
-def _triu_indices(data: Preprocessed) -> tuple[np.ndarray, np.ndarray]:
-    """Return upper-triangle index pairs (i, j) for i < j."""
-    n = len(data.y_codes)
-    return np.triu_indices(n, k=1)
-
-
-def _fill_symmetric(n: int, i: np.ndarray, j: np.ndarray, values: np.ndarray) -> np.ndarray:
-    """Reconstruct an (n, n) symmetric distance matrix from upper-triangle values."""
-    D = np.zeros((n, n), dtype=float)
-    D[i, j] = values
-    D[j, i] = values
-    return D
-
-
-def _nominal_mismatches_symmetric(data: Preprocessed, i: np.ndarray, j: np.ndarray) -> np.ndarray:
-    """Count mismatched nominal attributes for symmetric pairs (i, j) without inflating one-hot."""
-    if data.X_nom.shape[1] == 0:
-        return np.zeros(len(i), dtype=float)
-    return np.sum(data.X_nom[i] != data.X_nom[j], axis=1).astype(float)
-
-
-def _relative_differences_symmetric(data: Preprocessed, i: np.ndarray, j: np.ndarray) -> np.ndarray:
-    """Symmetric relative differences |a - b| / (|a| + |b|) for index pairs."""
-    a = data.X_num[i]
-    b = data.X_num[j]
-    diff = np.abs(a - b)
-    denom = np.abs(a) + np.abs(b)
-    return np.divide(diff, denom, out=np.zeros_like(diff), where=denom > 0)
-
-
 def _relative_differences(train: Preprocessed, test: Preprocessed) -> np.ndarray:
     """(n_test, n_train, n_num) terms |x - y| / (|x| + |y|) of the numeric attributes.
 
@@ -74,20 +44,10 @@ def _relative_differences(train: Preprocessed, test: Preprocessed) -> np.ndarray
 def euclidean(train: Preprocessed, test: Preprocessed | None = None) -> np.ndarray:
     """Minkowski r=2 on the one-hot representation (all feature weights equal to 1).
 
-    If ``test`` is omitted (or identical to ``train``), uses upper-triangle indexing
-    (``np.triu_indices``) to compute the symmetric (n, n) distance matrix with 50% fewer
-    arithmetic operations and reduced intermediate memory.
+    If ``test`` is omitted, returns the symmetric (n, n) train x train matrix.
     """
-    if test is None or test is train:
-        # i = [0, 0, 0, 0...] j = [1, 2, 3, 4...]
-        i, j = _triu_indices(train)
-        if len(i) == 0:
-            return np.zeros((len(train.y_codes), len(train.y_codes)), dtype=float)
-        diff = train.X_num[i] - train.X_num[j]
-        numeric = np.sum(diff**2, axis=1)
-        mismatches = _nominal_mismatches_symmetric(train, i, j)
-        dists = np.sqrt(numeric + 2.0 * mismatches)
-        return _fill_symmetric(len(train.y_codes), i, j, dists)
+    if test is None:
+        test = train
 
     # Numeric part: exact squared differences, so equal rows give exactly 0 and ties stay ties.
     numeric = np.sum((test.X_num[:, None, :] - train.X_num[None, :, :]) ** 2, axis=2)
@@ -102,18 +62,10 @@ def euclidean(train: Preprocessed, test: Preprocessed | None = None) -> np.ndarr
 def manhattan(train: Preprocessed, test: Preprocessed | None = None) -> np.ndarray:
     """Minkowski r=1 on the one-hot representation (all feature weights equal to 1).
 
-    If ``test`` is omitted (or identical to ``train``), computes symmetric pairwise distances
-    using ``np.triu_indices``.
+    If ``test`` is omitted, returns the symmetric (n, n) train x train matrix.
     """
-    if test is None or test is train:
-        i, j = _triu_indices(train)
-        if len(i) == 0:
-            return np.zeros((len(train.y_codes), len(train.y_codes)), dtype=float)
-        diff = np.abs(train.X_num[i] - train.X_num[j])
-        numeric = np.sum(diff, axis=1)
-        mismatches = _nominal_mismatches_symmetric(train, i, j)
-        dists = numeric + 2.0 * mismatches
-        return _fill_symmetric(len(train.y_codes), i, j, dists)
+    if test is None:
+        test = train
 
     # Numeric part: absolute differences instead of squared ones.
     numeric = np.sum(np.abs(test.X_num[:, None, :] - train.X_num[None, :, :]), axis=2)
@@ -127,18 +79,10 @@ def manhattan(train: Preprocessed, test: Preprocessed | None = None) -> np.ndarr
 def canberra(train: Preprocessed, test: Preprocessed | None = None) -> np.ndarray:
     """Canberra distance (Wilson & Martinez, 1997) on the one-hot representation.
 
-    If ``test`` is omitted (or identical to ``train``), computes symmetric pairwise distances
-    using ``np.triu_indices``.
+    If ``test`` is omitted, returns the symmetric (n, n) train x train matrix.
     """
-    if test is None or test is train:
-        i, j = _triu_indices(train)
-        if len(i) == 0:
-            return np.zeros((len(train.y_codes), len(train.y_codes)), dtype=float)
-        rel_diff = _relative_differences_symmetric(train, i, j)
-        numeric = rel_diff.sum(axis=1)
-        mismatches = _nominal_mismatches_symmetric(train, i, j)
-        dists = numeric + 2.0 * mismatches
-        return _fill_symmetric(len(train.y_codes), i, j, dists)
+    if test is None:
+        test = train
 
     numeric = _relative_differences(train, test).sum(axis=2)
     # Each different nominal value flips two one-hot columns, |1 - 0| / (1 + 0) = 1 each.
@@ -150,18 +94,10 @@ def clark(train: Preprocessed, test: Preprocessed | None = None) -> np.ndarray:
     representation. The usual definition takes the square root, which is monotonic, so the
     k nearest neighbours are the same either way; only distance-weighted votes change.
 
-    If ``test`` is omitted (or identical to ``train``), computes symmetric pairwise distances
-    using ``np.triu_indices``.
+    If ``test`` is omitted, returns the symmetric (n, n) train x train matrix.
     """
-    if test is None or test is train:
-        i, j = _triu_indices(train)
-        if len(i) == 0:
-            return np.zeros((len(train.y_codes), len(train.y_codes)), dtype=float)
-        rel_diff = _relative_differences_symmetric(train, i, j)
-        numeric = (rel_diff**2).sum(axis=1)
-        mismatches = _nominal_mismatches_symmetric(train, i, j)
-        dists = numeric + 2.0 * mismatches
-        return _fill_symmetric(len(train.y_codes), i, j, dists)
+    if test is None:
+        test = train
 
     numeric = (_relative_differences(train, test) ** 2).sum(axis=2)
     # Each different nominal value flips two one-hot columns, (1 / 1)^2 = 1 each.
@@ -176,18 +112,10 @@ def heom(train: Preprocessed, test: Preprocessed | None = None) -> np.ndarray:
     Unknown values would count as 1, but the preprocessing has already imputed them.
     Unlike ``euclidean`` on one-hot (2 per different value), a different value adds 1.
 
-    If ``test`` is omitted (or identical to ``train``), computes symmetric pairwise distances
-    using ``np.triu_indices``.
+    If ``test`` is omitted, returns the symmetric (n, n) train x train matrix.
     """
-    if test is None or test is train:
-        i, j = _triu_indices(train)
-        if len(i) == 0:
-            return np.zeros((len(train.y_codes), len(train.y_codes)), dtype=float)
-        diff = train.X_num[i] - train.X_num[j]
-        numeric = np.sum(diff**2, axis=1)
-        mismatches = _nominal_mismatches_symmetric(train, i, j)
-        dists = np.sqrt(numeric + mismatches)
-        return _fill_symmetric(len(train.y_codes), i, j, dists)
+    if test is None:
+        test = train
 
     numeric = np.sum((test.X_num[:, None, :] - train.X_num[None, :, :]) ** 2, axis=2)
     mismatches = _nominal_mismatches(train, test)

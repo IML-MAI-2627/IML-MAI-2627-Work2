@@ -3,7 +3,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 import config
 from experiment_runner import ClassificationResult
-from models.classifier_base import BaseClassifier
+from models.classifier_base import BaseClassifier, full_class_scores
 from models.knn.reduction import REDUCTION_PARAM_KEYS, parse_reduction_params
 from preprocessing import Preprocessed
 
@@ -87,8 +87,7 @@ class RandomForest(BaseClassifier):
         self, train: Preprocessed, test: Preprocessed
     ) -> tuple[ndarray, ndarray, ndarray, ndarray]:
         """Validate and apply reduction if active, then prepare one-hot matrices."""
-        if hasattr(self, "reduction_instance") and self.reduction_instance.method != "none":
-            train = train.reduce(self.reduction_instance)
+        train = self.reduce_train(train)
 
         # We use to_onehot, as we have decided for nominal variables
         train_X = train.to_onehot()
@@ -118,7 +117,15 @@ class RandomForest(BaseClassifier):
         clf = RandomForestClassifier(**self.rf_params)
         clf.fit(train_X, train_y)
 
+        scores = None
+        if self.return_scores:
+            raw = clf.predict_proba(test_X)
+            scores = full_class_scores(raw, clf.classes_, len(test.class_values), 0.0)
+
         return ClassificationResult(
             predictions=clf.predict(test_X),
             storage=len(train_y),
+            scores=scores,
+            reduction_time=self.reduction_time,
+            reduction_wall_time=self.reduction_wall_time,
         )

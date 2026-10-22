@@ -10,7 +10,9 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 
-from models.knn.knn_utils import Neighbor, VotingFunction
+import numpy as np
+
+from models.knn.knn_utils import Neighbor, ScoreFunction, VotingFunction
 
 
 def majority(neighbors: Sequence[Neighbor]) -> int:
@@ -40,7 +42,32 @@ def inverse_distance(neighbors: Sequence[Neighbor]) -> int:
     return next(neighbor.label for neighbor in neighbors if weights[neighbor.label] == best)
 
 
+def majority_scores(neighbors: Sequence[Neighbor], n_classes: int) -> np.ndarray:
+    """Share of the k neighbours of each class (the support behind ``majority``)."""
+    scores = np.zeros(n_classes)
+    for neighbor in neighbors:
+        scores[neighbor.label] += 1.0
+    return scores / scores.sum()
+
+
+def inverse_distance_scores(neighbors: Sequence[Neighbor], n_classes: int) -> np.ndarray:
+    """Normalised 1/d weight of each class, with the same exact-match rule as the vote."""
+    exact = [neighbor for neighbor in neighbors if neighbor.distance == 0.0]
+    if exact:
+        return majority_scores(exact, n_classes)
+    scores = np.zeros(n_classes)
+    for neighbor in neighbors:
+        scores[neighbor.label] += 1.0 / neighbor.distance
+    return scores / scores.sum()
+
+
 VOTING: dict[str, VotingFunction] = {
     "majority": majority,
     "inverse_distance": inverse_distance,
+}
+
+# Per-class scores behind each vote, used only for ROC / PR curves (not for predicting).
+VOTE_SCORES: dict[str, ScoreFunction] = {
+    "majority": majority_scores,
+    "inverse_distance": inverse_distance_scores,
 }
