@@ -32,6 +32,7 @@ from .reduction import (
     fcnn,
     parse_reduction_params,
     reduce_dataset,
+    reduction_kNNAlgorithm,
 )
 from .retention import (
     RETENTION,
@@ -73,6 +74,7 @@ __all__ = [
     "fcnn",
     "parse_reduction_params",
     "reduce_dataset",
+    "reduction_kNNAlgorithm",
     "RETENTION",
     "OblivionByGoodness",
     "always_retain",

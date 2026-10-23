@@ -129,3 +129,12 @@ class RandomForest(BaseClassifier):
             reduction_time=self.reduction_time,
             reduction_wall_time=self.reduction_wall_time,
         )
+
+
+def rfAlgorithm(train: Preprocessed, test: Preprocessed, **params: object) -> list[int]:
+    """Predict one class code per test case with a Random Forest fitted on ``train``.
+
+    Named as the assignment requires (``rfAlgorithm(...)``). ``params`` are the same as for
+    the ``RandomForest`` adapter (e.g. ``n_estimators=100, criterion="gini"``).
+    """
+    return [int(p) for p in RandomForest(dict(params)).fit_predict(train, test).predictions]

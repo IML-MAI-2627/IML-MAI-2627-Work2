@@ -21,6 +21,7 @@ from models.knn.knn_utils import (
     check_k,
     classify_from_neighbors,
     compute_distance_matrix,
+    kNNAlgorithm,
     subset_preprocessed,
 )
 from models.knn.voting import VOTING
@@ -1205,3 +1206,28 @@ def reduce_with_cache(
         np.savez(tmp, indices=indices, seconds=seconds)
         tmp.replace(path)  # atomic: parallel workers never read a half-written file
     return subset_preprocessed(train, indices), seconds, seconds
+
+
+def reduction_kNNAlgorithm(
+    train: Preprocessed,
+    test: Preprocessed,
+    k: int,
+    distance_function: str | DistanceFunction,
+    voting_function: str | VotingFunction,
+    reduction: str,
+    retention_function: Callable[[int, int], bool] | None = None,
+    **reduction_params: Any,
+) -> list[int]:
+    """kNN on a reduced training set: reduce ``train``, then run ``kNNAlgorithm``.
+
+    Named as the assignment requires (``reduction_kNNAlgorithm(...)``). The reduction uses the
+    same k, distance and voting as the kNN; ``reduction`` is ``"fcnn"``, ``"eenth"``, ``"drop"``
+    or ``"del"`` and ``reduction_params`` its options (``version``, ``threshold``).
+    """
+    distance = resolve_distance(distance_function)
+    voting = resolve_voting(voting_function)
+    reducer = InstanceReduction(
+        reduction, k=k, distance=distance, voting=voting, **reduction_params
+    )
+    reduced = reducer.reduce(train).data
+    return kNNAlgorithm(reduced, test, k, distance, voting, retention_function)

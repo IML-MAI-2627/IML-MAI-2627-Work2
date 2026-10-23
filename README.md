@@ -245,6 +245,28 @@ python experiments/run.py --dataset splice --classifier baseline --reduction fcn
 The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
 Use `--out <path>` to select another destination.
 
+### Functions named in the assignment
+
+The experiments use the classifier classes, but the functions the assignment asks for exist
+and give the same predictions (tested in `tests/test_required_names.py`):
+
+```python
+from experiment_runner import load_fold
+from models.knn import kNNAlgorithm, reduction_kNNAlgorithm
+from models.knn.distances import heom
+from models.knn.voting import majority
+from models.random_forest import rfAlgorithm
+from models.svm import svmAlgorithm
+
+train, test, _ = load_fold("vowel", 0)  # TrainMatrix / TestMatrix, preprocessed
+kNNAlgorithm(train, test, 3, heom, majority)  # optional retention function as 6th argument
+reduction_kNNAlgorithm(train, test, 3, "heom", "majority", "fcnn", version=1)
+svmAlgorithm(train, test, kernel="poly", degree=5, C=3.0)
+rfAlgorithm(train, test, n_estimators=300, criterion="entropy")
+```
+
+Each returns one predicted class code per test case.
+
 ### Create a model
 
 Each classifier now inherits from the BaseClassifier class. This object-oriented design

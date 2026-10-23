@@ -436,6 +436,12 @@ Status: **decided** / **pending**.
   `prepare_data`, `fit_predict`), so `experiments/run.py --classifier knn` runs it like any other model.
     - *Why:* the assignment requires the name `kNNAlgorithm(...)`, and the runner needs the common
       `BaseClassifier` interface. (decided)
+- **The other required names follow the same pattern:** `svmAlgorithm(train, test, **params)`
+  (`src/models/svm.py`), `rfAlgorithm(train, test, **params)` (`src/models/random_forest.py`) and
+  `reduction_kNNAlgorithm(train, test, k, distance, voting, reduction, retention=None, **options)`
+  (`src/models/knn/reduction.py`: reduce `train` with the kNN's own k, distance and voting, then
+  `kNNAlgorithm`). They return the predictions; a test checks they equal the adapters' predictions, so the
+  experiments (run through the adapters) are the results of these functions. (decided)
 - **Checked against scikit-learn (`KNeighborsClassifier`, brute force) on all 10 folds** (only in `tests/`):
   identical predictions for k=1 on both datasets; for k>1 every difference comes from a tie (at the k-th
   neighbour or in the vote), which we break deterministically and sklearn does not. (note)

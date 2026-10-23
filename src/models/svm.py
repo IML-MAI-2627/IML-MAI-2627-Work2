@@ -159,3 +159,12 @@ class SVM(BaseClassifier):
             reduction_time=self.reduction_time,
             reduction_wall_time=self.reduction_wall_time,
         )
+
+
+def svmAlgorithm(train: Preprocessed, test: Preprocessed, **params: object) -> list[int]:
+    """Predict one class code per test case with an SVM fitted on ``train``.
+
+    Named as the assignment requires (``svmAlgorithm(...)``). ``params`` are the same as for
+    the ``SVM`` adapter (e.g. ``kernel="rbf", C=1.0``), including the reduction options.
+    """
+    return [int(p) for p in SVM(dict(params)).fit_predict(train, test).predictions]
