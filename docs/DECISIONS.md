@@ -523,8 +523,11 @@ Status: **decided** / **pending**.
     - Governed by `--version`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN pre-filtering), `4` (DROP4), `5` (DROP5).
     - In DROP1, removed points are discarded from neighbor lists of associates so risk evaluations never reference pruned instances.
     - *Why:* Associate-based risk checks prevent cascading classification errors; DROP3's initial ENN pass eliminates noisy border instances before pruning internal prototypes. (decided)
-  - **EENTh (Extended Edited Nearest Neighbor with Threshold, Wilson & Martinez 2000):**
-    Consensus-based noise filtering. An instance is retained only if the proportion of its $k$ nearest neighbors agreeing with its label exceeds `--threshold` $\in [0, 1]$ (default 0.0).
+  - **ENNTh (Edited Nearest Neighbor estimating class probabilities and Threshold; Vázquez, Sánchez & Pla 2005,
+    "WilsonTh"; called `eenth` in the code):** for each instance, its $k$ nearest neighbours (itself excluded) give
+    class probabilities $P_i(x) = \sum_j p_i^j / (1 + d(x, x_j))$, normalised to sum 1. The instance is removed if the
+    most probable class is not its label, **or** if that maximum probability is $\le$ `--threshold` $\mu$
+    (default 0.0, which is the paper's WilsonProb). Checked against the paper (Section 3).
     - *Why:* Provides flexible border smoothing and noise cleaning; unified under a single threshold parameter. (decided)
   - **DEL (Decremental Encoding Length, Wilson & Martinez 2000 Section 4.6 & 3.2.8; Cameron-Jones 1995):**
     Decremental instance pruning governed by the Minimum Description Length (MDL) encoding length heuristic:
@@ -542,6 +545,12 @@ Status: **decided** / **pending**.
       - An instance is removed during the noise-filtering pass if it is misclassified by its $k$ nearest neighbors **and** dropping it does not increase description length cost ($Cost_{new} \le Cost_{curr}$).
       - During the decremental pass, candidate prototypes sorted by distance to their nearest enemy are removed if the associate error delta and self-exception check maintain or lower the system encoding length.
       - Implemented by reusing `drop()` with an `is_del: bool = True` branch. (decided)
+      - *Interpretation of the paper:* DEL has a noise-filtering pass and then a decremental pass ordered by
+        distance to the nearest enemy (Wilson & Martinez 2000, Section 4.6). The paper says the instances are removed
+        "as long as any improvement is being made", which can be read as one ordered pass (our choice, as in DROP3)
+        or as repeating that pass until nothing is removed; extra passes could only remove more instances. The number
+        of exceptions x after a removal is estimated from the associates and the removed instance itself, not by
+        reclassifying the whole training set. (decided)
 
 - **Object-Oriented Reduction Hierarchy (`reduction.py`):**
   Each reduction algorithm is implemented as a dedicated subclass inheriting from an abstract `InstanceReduction` base class:
@@ -643,12 +652,18 @@ Status: **decided** / **pending**.
   its k retrieved neighbours update: G <- G + alpha * (r - G), with r = 1 if the neighbour's class
   equals the query's true class. (decided)
 - **With initial goodness = threshold, a single wrong retrieval (0.5 -> 0.4) forgets a case.**
-  Confirm these values against the assignment description. (pending)
+  This is what the assignment specifies ("a case is removed whenever Goodness_t(c) < Goodness_0(c)",
+  Section 1.2, 3c). (decided)
 - **OG never forgets a case if that would leave fewer than k cases.** (decided)
 
-## Hyperparameter Tuning (Grid Search)
+## Hyperparameter Tuning (Grid Search v1, removed)
 
-### Manual Implementation (`experiments/gridsearch.py`)
+- **`experiments/grid_search.py` (v1) and its results were removed on 23 Oct**; grid search v2 (below) replaces
+  them and is the only one delivered (two grid searches would confuse the reader). v1 stays in the git history.
+  The rules of this section that are not specific to v1 still apply to v2: datasets are never merged, the 10
+  folds are the blocks, and the optimization-bias limitation. (decided)
+
+### Manual Implementation (`experiments/grid_search.py`, v1)
 
 - **Implemented a custom Grid Search script instead of using `sklearn.model_selection.GridSearchCV`.** The script
   generates a Cartesian product of parameters, prunes redundant configurations, and executes the CLI `run.py` command
@@ -745,8 +760,7 @@ Status: **decided** / **pending**.
 ## Grid search v2 (`experiments/grid_search_v2.py`)
 
 One script runs every experiment of the assignment, with and without instance reduction, and answers each
-question of Section 1.3 with a pre-defined test. `experiments/grid_search.py` (v1) is kept for the results we
-already have; v2 replaces it for the final report.
+question of Section 1.3 with a pre-defined test. It replaces `experiments/grid_search.py` (v1, removed).
 
 ### Ground rules (decided)
 
@@ -771,6 +785,9 @@ already have; v2 replaces it for the final report.
     - *Time stays comparable:* on a hit, `reduction_time` is the time measured when the reduction was computed and
       `time` is charged with it (`run_fold` adds the difference), so the CSVs mean the same with or without the
       cache. Delete the folder to force recomputation. (decided)
+    - *No global state:* the folder is an explicit attribute of each classifier (`reduction_cache_dir`, default
+      `None` = no cache), set by `grid_search_v2.py` when it creates the classifier; `reduce_with_cache` receives it
+      as an argument. (decided)
 - **In-process execution** (`run_experiment` directly, optional process pool) instead of one subprocess per
   configuration as in v1: each process parses and preprocesses every fold once (`load_fold` cache).
 
@@ -896,8 +913,6 @@ Feature selection vs sample reduction (and combining them) is answered by reason
 | kNN voting                           | Majority (nearest-tied tie-break) and Inverse Distance (registry `VOTING`)                                         | Own code                                                                                         | `src/models/knn/voting.py`           |
 | kNN retention                        | Never, Always, Different Class, Oblivion by Goodness with neighbor score reinforcement (registry `RETENTION`)        | Own code                                                                                         | `src/models/knn/retention.py`        |
 | Instance reduction                   | FCNN (rules 1..4), EENTh (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
-| Grid Search                          | Extracting approximate optimal hyperparameters for Random Forest and Support Vector Machine classifiers             | Own code                                                                                         | `experiments/grid_search.py`          |
-| Grid Search analysis                 | Extracting optimal models using grid_search and applying statistical tests                                          | Own code                                                                                         | `experiments/grid_search.py`          |
 | Grid search v2                       | Full pipeline with and without reduction, tests per question, winners                                              | Own code + `concurrent.futures` (stdlib)                                                         | `experiments/grid_search_v2.py`       |
 | Winner plots                         | ROC (macro OvR), PR (micro), confusion matrices, accuracy vs storage / time                                          | `sklearn.metrics` (curves only, not in the kNN), `matplotlib`                                    | `experiments/plot_winners.py`         |
 | Holm correction                      | Step-down adjusted p-values for control comparisons                                                                 | Own code                                                                                         | `src/stats.py`                        |
@@ -930,8 +945,10 @@ Not used (on purpose):
 
 ## Pending decisions
 
+Closed (23 Oct): **HEOM** is the metric "you may choose" (implemented and in both grids; best kNN distance on
+vowel). **OG parameters** follow the assignment (Section 1.2, 3c): G_0 = 0.5, alpha = 0.2, and a case is removed
+whenever G_t < G_0, so one wrong retrieval (0.5 -> 0.4) forgets it; that is the specified behaviour.
+
 | Topic                                    | Proposal                                                                                  | Needs                                   |
 |------------------------------------------|-------------------------------------------------------------------------------------------|-----------------------------------------|
-| Distance chosen as "one you may choose"  | HEOM, implemented (no train statistics needed)                                            | Team confirmation (#8)                  |
-| OG parameters                            | Initial goodness 0.5, alpha 0.2, threshold 0.5 (issue #11); one wrong retrieval forgets a case | Check the assignment description (#11)  |
-| vowel columns                            | See "Dropped columns" (A/B/C comparison)                                                  | The kNN exists: run the comparison      |
+| vowel columns                            | See "Dropped columns" (A/B/C comparison)                                                  | Team: run it, or state in the report that it is out of scope |

@@ -210,7 +210,7 @@ Instance reduction algorithms select a representative subset of training instanc
   *(Forbidden with `--reduction eenth`, `--reduction del`, or `--reduction none`)*.
 
 - `--threshold` (float): Acceptance consensus threshold $\in [0, 1]$. Exclusive to `--reduction eenth`:
-  - Instances are pruned if the agreement ratio of their $k$ nearest neighbors is below this threshold. Default: 0.0.
+  - An instance is removed if its distance-weighted class probability (weights 1/(1+d) over its $k$ nearest neighbours) does not predict its label, or if that maximum probability is <= this threshold (Vázquez, Sánchez & Pla, 2005). Default: 0.0.
   *(Forbidden with `--reduction fcnn`, `--reduction drop`, `--reduction del`, or `--reduction none`)*.
 
 - `--distance` / `--reduction_distance` (string, optional): Distance metric for neighbor identification during reduction in non-kNN models. Defaults to `euclidean`. *(Forbidden as a separate reduction parameter in `knn`, which uses kNN's classification metric)*.
@@ -336,49 +336,6 @@ Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vo
 `all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
 changes the output folder.
 
-## Hyperparameter Tuning (Grid Search)
-
-Extracts the approximated optimal hyperparameters for each model and each dataset performing a Grid Search and
-statistical tests.
-Run from the project root:
-
-```bash
-python experiments/grid_search.py --dataset all --classifier all --out results/gridsearch
-```
-
-Output goes to `results/gridsearch/` (not committed). `--dataset` accepts `splice`, `vowel` or `all`; `--classifier`
-accepts `rf`, `svm`, or `all`; `--out` changes the output folder.
-
-The output is organized as a nested directory structure to keep thousands of configurations perfectly categorized:
-
-```text
-results/gridsearch/
-├── optimal_results.txt                     # Master summary report with stats and best configs
-├── splice/                                 # Results specific to the Splice dataset
-│   ├── rf/                                 # Random Forest configurations
-│   │   ├── cd_diagram_splice_rf_champions.png  # Intra-model CD diagram
-│   │   ├── splice_rf_criterion-gini...csv      # Fold-by-fold results for a specific config
-│   │   └── ... (96 CSV files)
-│   └── svm/                                # Support Vector Machine configurations
-│       ├── cd_diagram_splice_svm_champions.png
-│       ├── splice_svm_C-1.0_kernel-rbf...csv
-│       └── ... (168 CSV files)
-└── vowel/                                  # Results specific to the Vowel dataset
-    ├── rf/
-    └── svm/
-```
-
-### Generated Artifacts
-
-* **`optimal_results.txt`**: The definitive human-readable report. It details the absolute best configuration for each
-  model and dataset, lists the statistically equivalent top models (Nemenyi post-hoc test), and displays the results of
-  the Head-to-Head Wilcoxon signed-ranks test between the absolute best RF and the absolute best SVM.
-* **`cd_diagram_*.png`**: Critical Difference diagrams following Demšar (2006). These visually group statistically tied
-  configurations within a model family using a thick black line, separating the true winners from the rest.
-* **`*.csv` Files**: Each evaluated configuration saves its 10-fold results to its own CSV file. This enables aggressive
-  checkpointing: if the script is interrupted, it will instantly resume where it left off without re-running completed
-  configurations.
-
 ## Grid Search v2 (final experiments, with and without reduction)
 
 `experiments/grid_search_v2.py` runs every experiment of the assignment and the statistical tests
@@ -404,10 +361,25 @@ Options:
 - `--reduce-top N` how many of the best kNN configurations get every reduction technique
   (default 3; the best one is the `reduction_kNNAlgorithm`, the others check robustness).
 
+Expected time with `--jobs 1`: about 2 hours (splice ~1.5 h, vowel ~20 min; sum of the measured
+times of our run). The results of our run are committed in `results/gridsearch_v2/`, so
+`--stage evaluate` and `plot_winners.py` can be run directly on them (a few minutes).
+
 `run` has three phases: (1) full kNN / SVM / RF grids without reduction; (2) every
 reduction variant (FCNN, EENTh, DROP3, DEL) on the best kNN configurations; (3) the best SVM and RF trained on the reduced set of each technique. It is
 resumable: a configuration whose CSV exists is skipped, so an interrupted run can simply be
 started again.
+
+Each reduced training set is computed once and stored in `results/gridsearch_v2/reduction_cache/`
+(not committed; delete it to recompute), because the best SVM and RF reuse the reductions of the
+best kNN. The reported times still include the reduction time measured when it was computed. The
+cache is off by default: a classifier only uses it when its `reduction_cache_dir` attribute is
+set, which `grid_search_v2.py` does for every classifier it creates:
+
+```python
+model = SVM({"kernel": "rbf", "reduction": "drop", "version": 3})
+model.reduction_cache_dir = Path("results/gridsearch_v2/reduction_cache")  # optional
+```
 
 Output (`results/gridsearch_v2/`):
 
@@ -438,6 +410,18 @@ one of the grid search, caches the scores in `plots/cache/` and writes to
 `tradeoff_<dataset>.png` (accuracy vs storage and vs solve time) and `reduction_<dataset>.png`
 (accuracy, solve time, reduction time and storage per technique for kNN, SVM and RF). `--retrain` ignores the
 cache; `--dataset` limits it to one dataset.
+
+## Building the delivery ZIP
+
+```bash
+python scripts/make_submission.py --report path/to/report.pdf
+```
+
+Creates `dist/submission.zip` with `report.pdf` at the root and the project under `code/`
+(README, requirements, `src/`, `experiments/`, `datasets/`), as the course instructions ask.
+Only files tracked by git are packed. It fails if `requirements.txt` lists a package outside the
+allowed ones or if any packed file imports one. Options: `--with-results` (committed results),
+`--with-tests` (tests, need pytest), `--draft` (no report, for a dry run), `--out <zip>`.
 
 ## Layout
 
