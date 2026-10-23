@@ -16,7 +16,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import config  # noqa: E402
 from experiment_runner import run_experiment, save_results  # noqa: E402
-from models.knn import KNN  # noqa: E402
+from models.knn.knn import KNN  # noqa: E402
 from models.majority_baseline import MajorityBaseline  # noqa: E402
 from models.random_forest import RandomForest  # noqa: E402
 from models.svm import SVM  # noqa: E402

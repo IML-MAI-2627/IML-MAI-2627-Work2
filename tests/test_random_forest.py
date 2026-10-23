@@ -6,6 +6,7 @@ import pytest
 import config
 from experiment_runner import ClassificationResult
 from models.random_forest import RandomForest
+from preprocessing import Preprocessed
 
 
 @pytest.fixture
@@ -111,6 +112,32 @@ def test_prepare_data_success(mock_preprocessed):
     assert len(test_y) == 3
 
 
+def test_prepare_data_with_reduction():
+    rng = np.random.RandomState(42)
+    X0 = rng.randn(20, 2) + np.array([-2.0, 0.0])
+    X1 = rng.randn(20, 2) + np.array([2.0, 0.0])
+    X_num = np.vstack([X0, X1])
+    y_codes = np.array([0] * 20 + [1] * 20, dtype=np.int64)
+    train = Preprocessed(
+        X_num=X_num,
+        X_nom=np.empty((len(X_num), 0), dtype=np.int64),
+        y=np.array([str(c) for c in y_codes]),
+        y_codes=y_codes,
+        num_names=("n0", "n1"),
+        nom_names=(),
+        nom_values=(),
+        class_values=("0", "1"),
+    )
+    test = train
+
+    rf = RandomForest({"reduction": "drop", "version": 3, "reduction_k": 3})
+    train_X, train_y, test_X, test_y = rf.prepare_data(train, test)
+
+    assert len(train_y) <= 40
+    assert len(train_X) == len(train_y)
+    assert len(test_y) == 40
+
+
 def test_prepare_data_empty_train(mock_preprocessed):
     train = mock_preprocessed(n_samples=0)
     test = mock_preprocessed(n_samples=3)
@@ -181,3 +208,88 @@ def test_fit_predict_execution(mock_rf_class, mock_preprocessed):
     assert isinstance(result, ClassificationResult)
     assert list(result.predictions) == [0, 1, 0]
     assert result.storage == 5
+
+
+def test_rf_with_reduction_del():
+    """Random Forest with DEL reduction reduces training instances."""
+    from preprocessing import Preprocessed
+
+    rng = np.random.RandomState(42)
+    X0 = rng.randn(25, 2) + np.array([-3.0, 0.0])
+    X1 = rng.randn(25, 2) + np.array([3.0, 0.0])
+    X_num = np.vstack([X0, X1])
+    y_codes = np.array([0] * 25 + [1] * 25, dtype=np.int64)
+    train = Preprocessed(
+        X_num=X_num,
+        X_nom=np.empty((len(X_num), 0), dtype=np.int64),
+        y=np.array([str(c) for c in y_codes]),
+        y_codes=y_codes,
+        num_names=("n0", "n1"),
+        nom_names=(),
+        nom_values=(),
+        class_values=("0", "1"),
+    )
+
+    rf = RandomForest({"n_estimators": 5, "reduction": "del", "reduction_k": 3})
+    assert rf.params["reduction"] == "del"
+    assert rf.params["reduction_k"] == 3
+    assert "version" not in rf.params
+    assert "threshold" not in rf.params
+
+    res = rf.fit_predict(train, train)
+    assert res.storage < len(y_codes)
+    assert len(res.predictions) == len(y_codes)
+
+
+def test_rf_with_reduction_drop():
+    """Random Forest with DROP reduction reduces training instances."""
+    from preprocessing import Preprocessed
+
+    rng = np.random.RandomState(42)
+    X0 = rng.randn(30, 2) + np.array([-2.0, 0.0])
+    X1 = rng.randn(30, 2) + np.array([2.0, 0.0])
+    X_num = np.vstack([X0, X1])
+    y_codes = np.array([0] * 30 + [1] * 30, dtype=np.int64)
+    train = Preprocessed(
+        X_num=X_num,
+        X_nom=np.empty((len(X_num), 0), dtype=np.int64),
+        y=np.array([str(c) for c in y_codes]),
+        y_codes=y_codes,
+        num_names=("n0", "n1"),
+        nom_names=(),
+        nom_values=(),
+        class_values=("0", "1"),
+    )
+
+    rf = RandomForest({"n_estimators": 5, "reduction": "drop", "version": 3, "reduction_k": 3})
+    assert rf.params["reduction"] == "drop"
+    assert rf.params["version"] == 3
+    assert rf.params["reduction_k"] == 3
+
+    res = rf.fit_predict(train, train)
+    assert res.storage < len(y_codes)
+
+
+def test_rf_rejects_k():
+    """Random Forest rejects parameter 'k' and requires 'reduction_k'."""
+    with pytest.raises(ValueError, match="Use 'reduction_k'"):
+        RandomForest({"reduction": "del", "k": 3})
+
+
+def test_rf_rejects_incompatible_reduction_params():
+    """Random Forest validates and rejects invalid reduction parameters."""
+    with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
+        RandomForest({"reduction": "del", "version": 2})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
+        RandomForest({"reduction": "eenth", "version": 2})
+
+
+def test_rf_rejects_reduction_params_without_reduction():
+    """Random Forest rejects reduction parameters passed without specifying --reduction."""
+    msg = "without specifying the reduction type parameter '--reduction'"
+    with pytest.raises(ValueError, match=msg):
+        RandomForest({"reduction_k": 3})
+
+    with pytest.raises(ValueError, match=msg):
+        RandomForest({"version": 3})

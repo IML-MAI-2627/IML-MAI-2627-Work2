@@ -1,33 +1,42 @@
-"""Build the zip to deliver in Campus Virtual.
+"""Build the ZIP to deliver in Campus Virtual (layout of "How to deliver IML code and report"):
 
-Only whitelisted paths are included, so dev files (.github, .venv, .idea, docs/...)
-never end up in the delivery. It also checks that requirements.txt only contains
-the packages allowed by the assignment.
+    submission.zip
+    ├── report.pdf
+    └── code/
+        ├── README.md
+        ├── requirements.txt
+        ├── src/ experiments/ ...
+        └── datasets/
 
-Usage:
-    python scripts/make_submission.py
-    python scripts/make_submission.py --with-tests --with-datasets --with-results
+Only files tracked by git are packed, so local files (caches, venv, IDE settings, exploratory
+scripts, old results) never end up in the delivery. Before writing the ZIP it checks that
+requirements.txt only lists the allowed packages and that every packed Python file only imports
+the standard library, those packages or our own modules; scikit-learn only in the SVM, RF and
+preprocessing, and nothing but numpy in the kNN and reduction (src/models/knn/).
+
+Usage (from the project root):
+    python scripts/make_submission.py --report path/to/report.pdf
+    python scripts/make_submission.py --report report.pdf --with-results --with-tests
+    python scripts/make_submission.py --draft          # no report yet, for a dry run
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import re
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "dist" / "iml-work2-code.zip"
+OUT = ROOT / "dist" / "submission.zip"
+DEFAULT_REPORT = ROOT / "report" / "report.pdf"
 
-ALWAYS = ["src", "experiments", "README.md", "requirements.txt"]
-OPTIONAL = {
-    "with_tests": "tests",
-    "with_datasets": "datasets",
-    "with_results": "results",
-}
-EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache", ".venv", ".idea"}
-EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
+# Always inside code/: everything needed to install and run every experiment.
+ALWAYS = ["README.md", "requirements.txt", "src", "experiments", "datasets"]
+OPTIONAL = {"with_tests": "tests", "with_results": "results"}
 
 ALLOWED_PACKAGES = {
     "arff-loader",
@@ -38,6 +47,28 @@ ALLOWED_PACKAGES = {
     "matplotlib",
     "seaborn",
 }
+# Import names of the allowed packages.
+ALLOWED_IMPORTS = {"arff_loader", "numpy", "scipy", "pandas", "sklearn", "matplotlib", "seaborn"}
+# Development tools that only the tests may import (not in requirements.txt).
+TEST_ONLY_IMPORTS = {"pytest"}
+# The assignment allows scikit-learn only for some parts: SVM, RF and the preprocessing (the
+# professor confirmed the preprocessing in writing). Tests may use it as a reference.
+SKLEARN_ALLOWED_IN = {"src/models/svm.py", "src/models/random_forest.py", "src/preprocessing.py"}
+# The kNN and the instance reduction are our own code: only the standard library and numpy.
+OWN_CODE_DIR = "src/models/knn/"
+OWN_CODE_THIRD_PARTY = {"numpy"}
+
+
+def tracked_files(entry: str) -> list[Path]:
+    """Files under ``entry`` tracked by git (paths relative to the project root)."""
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", entry],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    )
+    names = [name for name in result.stdout.decode().split("\0") if name]
+    return [Path(name) for name in names if (ROOT / name).is_file()]
 
 
 def check_requirements(path: Path) -> list[str]:
@@ -56,31 +87,86 @@ def check_requirements(path: Path) -> list[str]:
     return bad
 
 
-def iter_files(entry: Path):
-    if entry.is_file():
-        yield entry
-        return
-    for path in sorted(entry.rglob("*")):
-        if not path.is_file():
+def local_modules(files: list[Path]) -> set[str]:
+    """Top-level names our own code can be imported as (modules and packages)."""
+    names = set()
+    for path in files:
+        if path.suffix != ".py":
             continue
-        if EXCLUDED_PARTS & set(path.relative_to(ROOT).parts):
+        parts = path.parts
+        # src/<module>.py, src/<package>/..., experiments/<module>.py, tests/<module>.py
+        if len(parts) >= 2 and parts[0] in {"src", "experiments", "tests", "scripts"}:
+            names.add(Path(parts[1]).stem)
+        names.add(parts[0])
+    return names
+
+
+def import_problem(path: Path, top: str, allowed: set[str]) -> str | None:
+    """Why importing ``top`` in ``path`` is not allowed, or None if it is."""
+    posix = path.as_posix()
+    in_tests = path.parts[0] == "tests"
+    if top not in allowed and not (in_tests and top in TEST_ONLY_IMPORTS):
+        return "package not allowed"
+    if top == "sklearn" and not in_tests and posix not in SKLEARN_ALLOWED_IN:
+        return "scikit-learn is only allowed for SVM, RF and preprocessing"
+    third_party = top in ALLOWED_IMPORTS
+    if posix.startswith(OWN_CODE_DIR) and third_party and top not in OWN_CODE_THIRD_PARTY:
+        return "the kNN and the reduction must be our own code (numpy only)"
+    return None
+
+
+def bad_imports(files: list[Path]) -> list[str]:
+    """``file: module`` for every import outside the stdlib, the allowed packages and our code."""
+    allowed = set(sys.stdlib_module_names) | ALLOWED_IMPORTS | local_modules(files)
+    problems = []
+    for path in files:
+        if path.suffix != ".py":
             continue
-        if path.suffix in EXCLUDED_SUFFIXES:
+        try:
+            tree = ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError as error:
+            problems.append(f"{path}: syntax error at line {error.lineno}")
             continue
-        yield path
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules = [node.module]
+            else:
+                continue
+            for module in modules:
+                top = module.split(".")[0]
+                problem = import_problem(path, top, allowed)
+                if problem:
+                    problems.append(f"{path}: {module} ({problem})")
+    return problems
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    for flag, folder in OPTIONAL.items():
-        parser.add_argument(
-            f"--{flag.replace('_', '-')}", action="store_true", help=f"include {folder}/"
-        )
-    args = parser.parse_args()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        "--report", type=Path, default=DEFAULT_REPORT, help="PDF placed at the zip root"
+    )
+    parser.add_argument(
+        "--draft", action="store_true", help="build without report.pdf (not for delivery)"
+    )
+    parser.add_argument("--with-tests", action="store_true", help="include tests/ (needs pytest)")
+    parser.add_argument(
+        "--with-results", action="store_true", help="include the committed results/"
+    )
+    parser.add_argument(
+        "--out", type=Path, default=OUT, help="output zip (default: dist/submission.zip)"
+    )
+    args = parser.parse_args(argv)
 
-    entries = list(ALWAYS) + [folder for flag, folder in OPTIONAL.items() if getattr(args, flag)]
+    report = args.report if args.report.is_absolute() else Path.cwd() / args.report
+    if not report.is_file() and not args.draft:
+        print(f"ERROR: report not found: {report}. Pass --report <pdf> (or --draft for a dry run).")
+        return 1
 
-    missing = [e for e in ALWAYS if not (ROOT / e).exists()]
+    missing = [entry for entry in ALWAYS if not (ROOT / entry).exists()]
     if missing:
         print(f"ERROR: missing required paths: {', '.join(missing)}")
         return 1
@@ -92,18 +178,28 @@ def main() -> int:
         )
         return 1
 
-    OUT.parent.mkdir(exist_ok=True)
-    count = 0
-    with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as zf:
-        for entry in entries:
-            target = ROOT / entry
-            if not target.exists():
-                print(f"warning: {entry} does not exist, skipped")
-                continue
-            for path in iter_files(target):
-                zf.write(path, path.relative_to(ROOT))
-                count += 1
-    print(f"Created {OUT.relative_to(ROOT)} with {count} files")
+    entries = list(ALWAYS) + [folder for flag, folder in OPTIONAL.items() if getattr(args, flag)]
+    files = [path for entry in entries for path in tracked_files(entry)]
+    untracked = [entry for entry in entries if not tracked_files(entry)]
+    if untracked:
+        print(f"ERROR: nothing tracked by git under: {', '.join(untracked)} (commit them first)")
+        return 1
+
+    problems = bad_imports(files)
+    if problems:
+        print("ERROR: imports not allowed by the assignment:\n  " + "\n  ".join(problems))
+        return 1
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(args.out, "w", zipfile.ZIP_DEFLATED) as zf:
+        if report.is_file():
+            zf.write(report, "report.pdf")
+        for path in files:
+            zf.write(ROOT / path, Path("code") / path)
+    note = "" if report.is_file() else " (DRAFT: no report.pdf, not ready to deliver)"
+    print(f"Created {args.out} with {len(files)} code files{note}")
+    if args.with_tests:
+        print("Note: tests/ needs pytest, which is a development tool (not in requirements.txt).")
     return 0
 
 

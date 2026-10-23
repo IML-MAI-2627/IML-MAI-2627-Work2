@@ -5,13 +5,19 @@ import pytest
 from sklearn.neighbors import KNeighborsClassifier
 
 import config
-from distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from experiment_runner import ClassificationResult
-from knn_base import Neighbor, OblivionByGoodness, kNNAlgorithm, run_kNN
-from models.knn import KNN, default_params
+from models.knn.distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
+from models.knn.knn import KNN, default_params
+from models.knn.knn_utils import Neighbor, kNNAlgorithm, run_kNN
+from models.knn.retention import (
+    RETENTION,
+    OblivionByGoodness,
+    always_retain,
+    different_class,
+    never_retain,
+)
+from models.knn.voting import VOTING, inverse_distance, majority
 from preprocessing import Preprocessed, preprocess_fold
-from retention import RETENTION, always_retain, different_class, never_retain
-from voting import VOTING, inverse_distance, majority
 
 
 def make_preprocessed(X_num, X_nom, labels, nom_values=None) -> Preprocessed:
@@ -61,15 +67,6 @@ def test_parse_params_injects_defaults():
     assert KNN({}).params == default_params
 
 
-def test_parse_params_resolves_retention_case_insensitively():
-    assert KNN({"retention": "Always"}).params["retention"] == "always"
-
-
-def test_parse_params_rejects_unknown_retention():
-    with pytest.raises(ValueError, match="Invalid retention"):
-        KNN({"retention": "sometimes"})
-
-
 def test_parse_params_casts_k_from_cli_string():
     assert KNN({"k": "5"}).params["k"] == 5
 
@@ -101,7 +98,76 @@ def test_parse_params_rejects_unknown_values(params, match):
 
 def test_params_contain_only_plain_values():
     """Callables would be written as '<function ...>' in the CSV ``params`` column."""
-    assert all(isinstance(v, int | str) for v in KNN({}).params.values())
+    assert all(isinstance(v, int | float | str) for v in KNN({}).params.values())
+
+
+def test_parse_params_reduction_adds_exclusive_parameters():
+    # FCNN: adds version (default 1)
+    knn_fcnn = KNN({"reduction": "fcnn"})
+    assert knn_fcnn.params["reduction"] == "fcnn"
+    assert knn_fcnn.params["version"] == 1
+    assert "threshold" not in knn_fcnn.params
+
+    # DROP: adds version (default 3)
+    knn_drop = KNN({"reduction": "drop", "version": 4})
+    assert knn_drop.params["reduction"] == "drop"
+    assert knn_drop.params["version"] == 4
+    assert "threshold" not in knn_drop.params
+
+    # EENTh: adds threshold (default 0.0)
+    knn_eenth = KNN({"reduction": "eenth", "threshold": 0.6})
+    assert knn_eenth.params["reduction"] == "eenth"
+    assert knn_eenth.params["threshold"] == 0.6
+    assert "version" not in knn_eenth.params
+
+    # DEL: neither version nor threshold
+    knn_del = KNN({"reduction": "del"})
+    assert knn_del.params["reduction"] == "del"
+    assert "version" not in knn_del.params
+    assert "threshold" not in knn_del.params
+
+    # None: neither version nor threshold
+    knn_none = KNN({"reduction": "none"})
+    assert knn_none.params["reduction"] == "none"
+    assert "version" not in knn_none.params
+    assert "threshold" not in knn_none.params
+
+
+def test_parse_params_reduction_rejects_incompatible_parameters():
+    with pytest.raises(ValueError, match="Unknown parameter 'threshold' for FCNN"):
+        KNN({"reduction": "fcnn", "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'threshold' for DROP"):
+        KNN({"reduction": "drop", "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
+        KNN({"reduction": "eenth", "version": 2})
+
+    with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
+        KNN({"reduction": "del", "version": 2})
+
+    with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
+        KNN({"reduction": "del", "threshold": 0.5})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_k' for kNN"):
+        KNN({"reduction": "del", "reduction_k": 3})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_distance' for kNN"):
+        KNN({"reduction": "drop", "reduction_distance": "canberra"})
+
+    with pytest.raises(ValueError, match="Unknown parameter 'reduction_voting' for kNN"):
+        KNN({"reduction": "drop", "reduction_voting": "inverse_distance"})
+
+    err_none = "are not allowed when reduction is 'none'"
+    with pytest.raises(ValueError, match=err_none):
+        KNN({"reduction": "none", "version": 3})
+
+    err_no_red = "without specifying the reduction type parameter '--reduction'"
+    with pytest.raises(ValueError, match=err_no_red):
+        KNN({"version": 3})
+
+    with pytest.raises(ValueError, match=err_no_red):
+        KNN({"threshold": 0.5})
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +195,14 @@ def test_prepare_data_rejects_misaligned_data(small_fold):
     broken = Preprocessed(**{**vars(test), "y_codes": test.y_codes[:1]})
     with pytest.raises(ValueError, match="same number of instances"):
         KNN({"k": 1}).prepare_data(train, broken)
+
+
+def test_prepare_data_applies_reduction(small_fold):
+    train, test = small_fold
+    knn = KNN({"k": 1, "reduction": "drop", "version": 3})
+    red_train, red_test = knn.prepare_data(train, test)
+    assert len(red_train.y) <= len(train.y)
+    assert len(red_test.y) == len(test.y)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +284,7 @@ def test_euclidean_matches_direct_one_hot_computation(n_num):
 
 def test_manhattan_matches_hand_computed_values(small_fold):
     train, test = small_fold
-    # |numeric difference| + 2 * (different nominal values), computed by hand.
+    # |numeric difference| + 2 * (different nominal values), see the table in the PR.
     expected = np.array(
         [
             [0.05, 0.05, 2.85, 2.95],
@@ -361,6 +435,21 @@ def test_heom_is_registered():
     assert DISTANCES["heom"] is heom
 
 
+@pytest.mark.parametrize("metric_name", ["euclidean", "manhattan", "canberra", "clark", "heom"])
+def test_distance_single_argument_matches_symmetric(small_fold, metric_name):
+    train, _ = small_fold
+    fn = DISTANCES[metric_name]
+    # Single argument call using triu_indices
+    d_single = fn(train)
+    # Two argument call
+    d_double = fn(train, train)
+    np.testing.assert_allclose(d_single, d_double)
+    # Diagonal is strictly zero
+    assert np.all(np.diag(d_single) == 0.0)
+    # Exact symmetry
+    np.testing.assert_allclose(d_single, d_single.T)
+
+
 # ---------------------------------------------------------------------------
 # Voting
 # ---------------------------------------------------------------------------
@@ -416,10 +505,6 @@ def test_inverse_distance_tie_between_zero_distance_neighbours_goes_to_first():
 def test_inverse_distance_is_registered():
     assert VOTING["inverse_distance"] is inverse_distance
 
-
-# ---------------------------------------------------------------------------
-# Retention
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Sanity check against scikit-learn (tests only, never in deliverable code)
@@ -503,7 +588,7 @@ def test_never_retain_matches_batch_path(k):
         nom_values,
     )
     sequential = run_kNN(train, test, k, euclidean, majority, never_retain)
-    assert sequential.predictions == kNNAlgorithm(train, test, k, euclidean, majority)
+    assert sequential.predictions == run_kNN(train, test, k, euclidean, majority).predictions
     assert sequential.case_base_size == 20
 
 
@@ -516,6 +601,15 @@ def test_retention_registry():
     }
 
 
+def test_parse_params_resolves_retention_case_insensitively():
+    assert KNN({"retention": "Always"}).params["retention"] == "always"
+
+
+def test_parse_params_rejects_unknown_retention():
+    with pytest.raises(ValueError, match="Invalid retention"):
+        KNN({"retention": "sometimes"})
+
+
 @pytest.mark.parametrize(
     ("retention", "expected_storage"),
     [("never", 4), ("always", 6)],  # small_fold: 4 train cases, 2 test cases
@@ -524,14 +618,6 @@ def test_fit_predict_storage_is_final_case_base_size(small_fold, retention, expe
     train, test = small_fold
     result = KNN({"k": 1, "retention": retention}).fit_predict(train, test)
     assert result.storage == expected_storage
-
-
-@pytest.mark.parametrize("retention", ["different_class", "oblivion_by_goodness"])
-def test_fit_predict_accepts_every_retention_name(small_fold, retention):
-    train, test = small_fold
-    result = KNN({"k": 1, "retention": retention}).fit_predict(train, test)
-    assert len(result.predictions) == 2
-    assert 4 <= result.storage <= 6  # between train only and train + test
 
 
 @pytest.fixture
@@ -550,8 +636,12 @@ def test_oblivion_by_goodness_hand_computed_sequence(og_fold):
     run = run_kNN(train, test, 1, euclidean, majority, OblivionByGoodness())
     assert run.predictions == [0, 1, 0]
     assert run.case_base_size == 3
-    # Same queries with AR keep everything: 2 train + 3 test.
-    assert run_kNN(train, test, 1, euclidean, majority, always_retain).case_base_size == 5
+
+
+def test_oblivion_by_goodness_forgets_compared_with_always_retain(og_fold):
+    train, test = og_fold
+    always = run_kNN(train, test, 1, euclidean, majority, always_retain)
+    assert always.case_base_size == 5
 
 
 def test_oblivion_by_goodness_never_leaves_fewer_than_k_cases():

@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.8012422360248447,258,64,0.07728322000002663,111.22733612273362,0.0,0.7978076485427361,"[[69,8,1],[4,72,1],[26,24,117]]"
+splice,1,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.8522012578616353,271,47,0.08367096700021648,111.0724233983287,0.0,0.8468286104588018,"[[72,4,0],[6,70,1],[20,16,129]]"
+splice,2,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.8522012578616353,271,47,0.09033387199997378,111.0724233983287,0.0,0.846702108807372,"[[71,4,2],[5,69,2],[18,16,131]]"
+splice,3,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.8333333333333334,265,53,0.09062089799954265,111.0724233983287,0.0,0.8334507869391591,"[[72,4,0],[1,73,3],[27,18,120]]"
+splice,4,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.85,272,48,0.10368496299997787,111.14982578397212,0.0,0.8471272092262686,"[[72,5,1],[2,72,3],[21,16,128]]"
+splice,5,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.8087774294670846,258,61,0.07549147499958053,111.11111111111111,0.0,0.8111446903136351,"[[75,0,2],[4,72,0],[26,29,111]]"
+splice,6,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.8348909657320872,268,53,0.0753088259989454,111.18856744510282,0.0,0.8335207206253886,"[[72,5,0],[3,76,0],[21,24,120]]"
+splice,7,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.7641509433962265,243,75,0.0749202269998932,111.0724233983287,0.0,0.7671323001285355,"[[70,4,2],[3,74,0],[37,29,99]]"
+splice,8,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.807570977917981,256,61,0.07444393200057675,111.03376261747303,0.0,0.810030334638828,"[[73,3,0],[1,73,2],[28,27,110]]"
+splice,9,kNN,distance=euclidean;k=7;reduction=none;retention=always;voting=majority,0.8244514106583072,263,56,0.07502410000051896,111.11111111111111,0.0,0.8233128245227758,"[[72,2,2],[5,70,1],[27,19,121]]"

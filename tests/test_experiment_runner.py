@@ -244,6 +244,9 @@ def test_save_results_uses_required_csv_schema(tmp_path):
             n_incorrect=2,
             time=0.01,
             storage=100.0,
+            reduction_time=0.0,
+            macro_f1=0.4,
+            confusion_matrix="[[2,0],[2,0]]",
         )
     ]
 
@@ -264,7 +267,11 @@ def test_save_results_uses_required_csv_schema(tmp_path):
         "n_incorrect",
         "time",
         "storage",
+        "reduction_time",
+        "macro_f1",
+        "confusion_matrix",
     }
+    assert tuple(rows[0].keys()) == experiment_runner.CSV_COLUMNS
 
     assert rows[0]["dataset"] == "vowel"
     assert rows[0]["fold"] == "0"
@@ -273,6 +280,30 @@ def test_save_results_uses_required_csv_schema(tmp_path):
     assert rows[0]["n_correct"] == "2"
     assert rows[0]["n_incorrect"] == "2"
     assert rows[0]["storage"] == "100.0"
+    matrix = experiment_runner.parse_confusion_matrix(rows[0]["confusion_matrix"])
+    assert matrix.tolist() == [[2, 0], [2, 0]]
+
+
+def test_run_fold_confusion_matrix_and_macro_f1(monkeypatch):
+    monkeypatch.setattr(experiment_runner, "preprocess_fold", fake_preprocess_fold)
+
+    result = experiment_runner.run_fold(
+        dataset="vowel", fold=0, classifier=always_zero_classifier, model_name="dummy"
+    )
+
+    # test labels [0, 1, 2, 0], always predicts 0: rows = true class, columns = predicted
+    matrix = experiment_runner.parse_confusion_matrix(result.confusion_matrix)
+    assert matrix.tolist() == [[2, 0, 0], [1, 0, 0], [1, 0, 0]]
+    assert matrix.sum() == result.n_correct + result.n_incorrect
+    assert np.trace(matrix) == result.n_correct
+    # class 0: TP=2, FP=2, FN=0 -> F1 = 4/6; classes 1 and 2 are never predicted -> 0
+    assert result.macro_f1 == pytest.approx((4 / 6) / 3)
+
+
+def test_macro_f1_perfect_and_ignores_absent_classes():
+    matrix = experiment_runner.confusion_matrix([0, 1, 1], [0, 1, 1], n_classes=4)
+    assert matrix.shape == (4, 4)
+    assert experiment_runner.macro_f1(matrix) == 1.0
 
 
 def test_folds_are_preprocessed_once(monkeypatch):

@@ -450,3 +450,10 @@ def test_plot_cd_diagram_saves_nemenyi_and_control_figures(tmp_path):
         fig = stats.plot_cd_diagram(result, title=filename, path=tmp_path / filename)
         assert (tmp_path / filename).stat().st_size > 0
         plt.close(fig)
+
+
+def test_holm_adjust():
+    p = pd.Series({"a": 0.01, "b": 0.04, "c": 0.03})
+    adjusted = stats.holm_adjust(p)
+    # sorted 0.01, 0.03, 0.04 -> 0.03, 0.06, max(0.06, 0.04) = 0.06
+    assert adjusted.to_dict() == pytest.approx({"a": 0.03, "b": 0.06, "c": 0.06})

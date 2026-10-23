@@ -1,0 +1,11 @@
+dataset,fold,model,params,accuracy,n_correct,n_incorrect,time,storage,reduction_time,macro_f1,confusion_matrix
+splice,0,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.8229813664596274,265,57,0.09439235600075335,96.19944211994421,0.0,0.8153055098791532,"[[68,9,1],[5,70,2],[21,19,127]]"
+splice,1,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.839622641509434,267,51,0.08274292900023283,96.65738161559888,0.0,0.8329416777896842,"[[68,6,2],[5,70,2],[19,17,129]]"
+splice,2,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.8459119496855346,269,49,0.07437260199912998,96.86629526462396,0.0,0.8383275523367221,"[[69,6,2],[5,68,3],[18,15,132]]"
+splice,3,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.839622641509434,267,51,0.07682946299973992,96.41364902506963,0.0,0.8382168117942066,"[[70,4,2],[1,71,5],[24,15,126]]"
+splice,4,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.80625,258,62,0.08636105000005045,96.09756097560975,0.0,0.8020252694165738,"[[65,7,6],[2,70,5],[20,22,123]]"
+splice,5,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.8087774294670846,258,61,0.0783638829998381,95.05398815743644,0.0,0.8088563479935291,"[[71,4,2],[3,73,0],[24,28,114]]"
+splice,6,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.8348909657320872,268,53,0.07864455100025225,95.60822586266993,0.0,0.8321913426916486,"[[70,4,3],[4,74,1],[22,19,124]]"
+splice,7,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.7955974842767296,253,65,0.07438361999993504,95.54317548746518,0.0,0.7963774232011039,"[[69,4,3],[3,74,0],[31,24,110]]"
+splice,8,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.8138801261829653,258,59,0.07714958699943963,95.37069265576054,0.0,0.8147109757114613,"[[71,3,2],[2,72,2],[25,25,115]]"
+splice,9,kNN,distance=euclidean;k=5;reduction=none;retention=oblivion_by_goodness;voting=majority,0.8275862068965517,264,55,0.07928615299897501,95.78544061302682,0.0,0.8220900284373339,"[[69,5,2],[6,69,1],[24,17,126]]"
