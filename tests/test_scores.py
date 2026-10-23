@@ -46,29 +46,31 @@ def test_reduction_time_is_measured_only_with_reduction():
 
 def test_reduction_cache_reuses_the_reduced_set_and_its_time(tmp_path):
     from experiment_runner import run_fold
-    from models.knn import reduction
 
-    reduction.set_reduction_cache(tmp_path)
-    try:
-        knn = KNN({"k": 3, "reduction": "drop", "version": 3})
-        first = run_fold("vowel", 0, knn.fit_predict, "kNN")
-        assert len(list(tmp_path.glob("*.npz"))) == 1
+    knn = KNN({"k": 3, "reduction": "drop", "version": 3})
+    knn.reduction_cache_dir = tmp_path
+    first = run_fold("vowel", 0, knn.fit_predict, "kNN")
+    assert len(list(tmp_path.glob("*.npz"))) == 1
 
-        # SVM with the same reducer settings hits the cache: same instances, same time charged
-        svm = SVM(
-            {
-                "reduction": "drop",
-                "version": 3,
-                "reduction_k": 3,
-                "reduction_distance": "euclidean",
-                "reduction_voting": "majority",
-            }
-        )
-        second = run_fold("vowel", 0, svm.fit_predict, "SVM")
-        assert len(list(tmp_path.glob("*.npz"))) == 1
-        assert second.storage == first.storage
-        assert second.reduction_time == first.reduction_time
-        assert svm.reduction_wall_time < svm.reduction_time  # nothing recomputed
-        assert second.time >= second.reduction_time  # time still includes the reduction
-    finally:
-        reduction.set_reduction_cache(None)
+    # SVM with the same reducer settings hits the cache: same instances, same time charged
+    svm = SVM(
+        {
+            "reduction": "drop",
+            "version": 3,
+            "reduction_k": 3,
+            "reduction_distance": "euclidean",
+            "reduction_voting": "majority",
+        }
+    )
+    svm.reduction_cache_dir = tmp_path
+    second = run_fold("vowel", 0, svm.fit_predict, "SVM")
+    assert len(list(tmp_path.glob("*.npz"))) == 1
+    assert second.storage == first.storage
+    assert second.reduction_time == first.reduction_time
+    assert svm.reduction_wall_time < svm.reduction_time  # nothing recomputed
+    assert second.time >= second.reduction_time  # time still includes the reduction
+
+    # Without a folder nothing is cached (no hidden global state).
+    plain = KNN({"k": 3, "reduction": "drop", "version": 3})
+    run_fold("vowel", 0, plain.fit_predict, "kNN")
+    assert plain.reduction_wall_time == plain.reduction_time

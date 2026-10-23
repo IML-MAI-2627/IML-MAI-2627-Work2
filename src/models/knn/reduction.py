@@ -1153,14 +1153,7 @@ VALID_REDUCTIONS = {"none", "fcnn", "eenth", "drop", "del"}
 # ---------------------------------------------------------------------------
 # Every technique is deterministic, so the same reducer on the same training fold always keeps
 # the same instances. The grid search applies one reduction to kNN, SVM and RF; with the cache
-# it is computed once. Off unless set_reduction_cache() is called.
-_CACHE_DIR: Path | None = None
-
-
-def set_reduction_cache(path: str | Path | None) -> None:
-    """Enable the cache in ``path`` (None disables it)."""
-    global _CACHE_DIR
-    _CACHE_DIR = Path(path) if path is not None else None
+# it is computed once. The caller passes the folder explicitly; without it nothing is cached.
 
 
 def _cache_key(reducer: InstanceReduction, train: Preprocessed) -> str | None:
@@ -1182,16 +1175,19 @@ def _cache_key(reducer: InstanceReduction, train: Preprocessed) -> str | None:
 
 
 def reduce_with_cache(
-    reducer: InstanceReduction, train: Preprocessed
+    reducer: InstanceReduction,
+    train: Preprocessed,
+    cache_dir: str | Path | None = None,
 ) -> tuple[Preprocessed, float, float]:
     """Reduce ``train``; returns (reduced set, reduction seconds, seconds spent in this call).
 
-    The reduction seconds are the ones measured when the reduction was actually computed,
-    also on a cache hit, so the reported times do not depend on the cache.
+    With ``cache_dir`` the reduced set is stored there and reused on later calls with the same
+    reducer and training data. The reduction seconds are the ones measured when the reduction
+    was actually computed, also on a cache hit, so the reported times do not depend on the cache.
     """
     start = perf_counter()
-    key = _cache_key(reducer, train) if _CACHE_DIR is not None else None
-    path = _CACHE_DIR / f"{key}.npz" if key is not None else None
+    key = _cache_key(reducer, train) if cache_dir is not None else None
+    path = Path(cache_dir) / f"{key}.npz" if key is not None else None
     if path is not None and path.exists():
         cached = np.load(path)
         reduced = subset_preprocessed(train, cached["indices"])

@@ -36,7 +36,6 @@ import config  # noqa: E402
 import stats  # noqa: E402
 from experiment_runner import format_params, run_experiment, save_results  # noqa: E402
 from models.knn.knn import KNN  # noqa: E402
-from models.knn.reduction import set_reduction_cache  # noqa: E402
 from models.random_forest import RandomForest  # noqa: E402
 from models.svm import SVM  # noqa: E402
 
@@ -140,10 +139,10 @@ def job_path(out: Path, dataset: str, stage: str, model: str, params: dict) -> P
 def run_job(job: tuple[str, str, dict, str]) -> str:
     """Run one configuration on the 10 folds and save its CSV (worker entry point)."""
     dataset, model, params, path = job
-    # <out>/<dataset>/<stage>/<model>/<file>.csv -> <out>/reduction_cache (shared by all jobs)
-    set_reduction_cache(Path(path).parents[3] / "reduction_cache")
     cls, name = CLASSIFIERS[model]
     classifier = cls(dict(params))
+    # <out>/<dataset>/<stage>/<model>/<file>.csv -> <out>/reduction_cache (shared by all jobs)
+    classifier.reduction_cache_dir = Path(path).parents[3] / "reduction_cache"
     results = run_experiment(dataset, classifier.fit_predict, name, classifier.params)
     tmp = Path(path).with_suffix(".tmp")
     save_results(results, tmp)

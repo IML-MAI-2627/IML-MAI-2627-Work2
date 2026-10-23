@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -15,6 +16,9 @@ class BaseClassifier(ABC):
     # the seconds actually spent in that call (smaller on a reduction-cache hit).
     reduction_time: float = 0.0
     reduction_wall_time: float = 0.0
+    # Folder where reduced training sets are stored and reused (None: no cache). Set it on the
+    # instance, e.g. ``model.reduction_cache_dir = Path("results/gridsearch_v2/reduction_cache")``.
+    reduction_cache_dir: Path | None = None
 
     def __init__(self, params: dict[str, object]):
         self.params = params
@@ -38,7 +42,9 @@ class BaseClassifier(ABC):
             return train
         from models.knn.reduction import reduce_with_cache
 
-        train, self.reduction_time, self.reduction_wall_time = reduce_with_cache(reducer, train)
+        train, self.reduction_time, self.reduction_wall_time = reduce_with_cache(
+            reducer, train, self.reduction_cache_dir
+        )
         return train
 
     @abstractmethod
