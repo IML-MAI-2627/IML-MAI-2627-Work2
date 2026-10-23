@@ -8,7 +8,7 @@ import config
 from experiment_runner import ClassificationResult
 from models.knn.distances import DISTANCES, canberra, clark, euclidean, heom, manhattan
 from models.knn.knn import KNN, default_params
-from models.knn.knn_utils import Neighbor, run_kNN
+from models.knn.knn_utils import Neighbor, kNNAlgorithm, run_kNN
 from models.knn.retention import (
     RETENTION,
     OblivionByGoodness,
@@ -221,7 +221,7 @@ def test_fit_predict_returns_classification_result(small_fold):
 
 def test_fit_predict_matches_kNNAlgorithm(small_fold):
     train, test = small_fold
-    expected = run_kNN(train, test, 3, euclidean, majority).predictions
+    expected = kNNAlgorithm(train, test, 3, euclidean, majority)
     assert KNN({"k": 3}).fit_predict(train, test).predictions == expected
 
 

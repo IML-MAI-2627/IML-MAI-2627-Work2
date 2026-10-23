@@ -18,7 +18,8 @@ from preprocessing import Preprocessed, preprocess_fold
 
 @dataclass(frozen=True)
 class ClassificationResult:
-    """Predictions and number of training instances retained by a classifier.
+    """Predictions and size of the case base the classifier ends with (training cases
+    plus any retained test cases).
 
     ``scores`` (n_test, n_classes) is optional: per-class scores for ROC / PR curves,
     filled only when the classifier is asked for them (``return_scores``).

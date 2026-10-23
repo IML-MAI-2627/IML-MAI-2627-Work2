@@ -43,9 +43,9 @@ Status: **decided** / **pending**.
 - **Code = position of the value in the ARFF header** (`nominal_values`), not in the data.
     - *Why:* the codes are identical in every fold, and a value that appears only in the test fold
       still has a valid code. The header is part of the file definition, so it is not leakage. (decided)
-- **One-hot version only for SVM, RF and the numeric-only distances** (`Preprocessed.to_onehot()`).
+- **One-hot version for SVM, RF and for comparing nominal values in the kNN distances** (`Preprocessed.to_onehot()`).
     - *Why:* those methods would interpret integer codes as ordered quantities (a false order).
-      Our nominal attributes have no natural order (A/C/G/T, Male/Female): the integer codes
+    - Our nominal attributes have no natural order (A/C/G/T, Male/Female): the integer codes
       are only labels, and `OrdinalEncoder` is just the tool that assigns them. (decided)
 - **Width of the one-hot:** splice gives 287 columns (60 attributes; most have 4 values
   A/C/G/T, some also have the ambiguous codes D/N/S/R). vowel gives 12 (10 numeric + `Sex` x 2). (note)
@@ -429,6 +429,16 @@ Status: **decided** / **pending**.
 - **Strictly own code with NumPy, no scikit-learn.**
   All distance evaluations, prototype selection, associate graph updates, neighbor sorting, voting, and retention are implemented from scratch using NumPy.
     - *Why:* Strict requirement of the course assignment; custom vectorization yields comparable or superior performance to scikit-learn on our datasets. (decided)
+- **`kNNAlgorithm(...)` is the algorithm, `KNN(BaseClassifier)` is the adapter.**
+  `kNNAlgorithm(train, test, k, distance_function, voting_function, retention_function=None)` in
+  `src/models/knn/knn_utils.py` returns one prediction per test case (it calls `run_kNN`). `KNN` in
+  `src/models/knn/knn.py` follows the same structure as `SVM` and `RandomForest` (`parse_params`,
+  `prepare_data`, `fit_predict`), so `experiments/run.py --classifier knn` runs it like any other model.
+    - *Why:* the assignment requires the name `kNNAlgorithm(...)`, and the runner needs the common
+      `BaseClassifier` interface. (decided)
+- **Checked against scikit-learn (`KNeighborsClassifier`, brute force) on all 10 folds** (only in `tests/`):
+  identical predictions for k=1 on both datasets; for k>1 every difference comes from a tie (at the k-th
+  neighbour or in the vote), which we break deterministically and sklearn does not. (note)
 
 ### Distance Calculations and Symmetric Optimization (`distances.py`)
 
@@ -448,12 +458,35 @@ Status: **decided** / **pending**.
   - `canberra`: Relative difference $\frac{|x - y|}{|x| + |y|}$ with nominal overlap; $0/0$ terms count as 0.
   - `clark`: Squared relative difference without square root; $0/0$ terms count as 0.
   - `heom`: Heterogeneous Euclidean-Overlap Metric (Wilson & Martinez, 1997) combining scaled continuous distances with categorical equality overlap. (decided)
+- **Neighbour order is deterministic:** stable argsort, so ties in distance go to the lower training
+  index. Voting policies receive neighbours ordered by `(distance, index)`. (decided)
+- **All distances must be finite and non-negative, and the matrix must have the right shape.**
+  Otherwise `ValueError` before voting. (decided)
+- **`euclidean` on one-hot is computed as two exact parts:** numeric squared differences, plus
+  `2 x (number of different nominal values)`, because two one-hot rows of one attribute differ in 0 or 2
+  columns. The number of matches comes from a product of 0/1 matrices, which is exact, so equal rows give
+  exactly 0 and ties remain ties.
+    - *Why:* a direct one-hot difference needs an `(n_test, n_train, n_onehot)` array (~2 GB on splice), and a
+      row-by-row loop took 0.69 s per splice fold against 0.027 s. (decided)
+- **Sanity check:** 1-NN euclidean on vowel gives 0.9889 mean accuracy over the 10 folds, the same as the
+  1-NN check of the preprocessing (~98.9%). (note)
 
 ### Decoupled Training Reduction and Test Evaluation (`knn.py`)
 
 - **Decoupled distance computation between training reduction and test prediction.**
   Instead of computing an upfront $(Train + Test) \times (Train + Test)$ matrix, distances are computed on `train` for reduction, and the test phase computes distances only against retained prototypes ($N_{test} \times N_{reduced}$).
     - *Why:* In instance reduction, 50% to 90% of training instances are pruned. Precomputing distances from test instances to training instances that get discarded was completely wasted computation. Furthermore, computing $N_{test} \times N_{test}$ distances when retention is `"never"` was 100% redundant. Decoupling eliminates all redundant distance calculations. (decided)
+- **Parameters: `k` (default 3), `distance` (default `euclidean`), `voting` (default `majority`),
+  `retention` (default `never`), `reduction` (default `none`).** Unknown keys, a non-integer or non-positive
+  `k` (including `"None"`), and unknown strategy names raise `ValueError`. Names are case-insensitive.
+  Defaults are injected into `params` so they appear in the CSV. (decided)
+- **Strategies are selected by name** through the registries `DISTANCES`, `VOTING` and `RETENTION`
+  (`src/models/knn/`). `self.params` keeps only the names; the callables are looked up in `fit_predict`.
+    - *Why:* the CLI passes strings, and the CSV `params` column must show readable names, not
+      `<function ...>`. (decided)
+- **No `random_state`:** the kNN is deterministic. (decided)
+- **`storage` is the size of the case base at the end of the test phase:** the (reduced) training set
+  without retention; more or less with AR, DF and OG (see *Retention*). (decided)
 
 ### Case-Base Retention Policies (`retention.py`)
 
@@ -539,6 +572,74 @@ Status: **decided** / **pending**.
 - **Default parameter injection and CSV synchronization.**
   Default values are injected for omitted parameters (`k=3`, `distance="euclidean"`, `voting="majority"`, `retention="never"`, `reduction="none"`). Active reduction parameters (`version` for FCNN/DROP, `threshold` for EENTh, `reduction_k` for non-kNN models) are synchronized into `self.params` and serialized in the CSV results table. (decided)
 
+### Contracts for strategies
+
+- **Distances:** `def metric(train, test=None) -> np.ndarray` returning the `(n_test, n_train)` matrix (or
+  `(n, n)` with one argument), registered in `DISTANCES` under its CLI name.
+- **Voting:** `def policy(neighbors: Sequence[Neighbor]) -> int` with a deterministic tie-break, registered
+  in `VOTING` (plus its score function in `VOTE_SCORES` for ROC / PR).
+- **Retention:** `def policy(prediction: int, label: int) -> bool` (retain the solved case?), registered in
+  `RETENTION`; OG is an `OblivionByGoodness` object because it also forgets cases.
+- Strategies must never modify `train` or `test` (folds are cached by the runner). (decided)
+
+### Distances
+
+- **Five metrics: euclidean (Minkowski r=2), manhattan (r=1), canberra, clark and heom.**
+  Numeric attributes come from `X_num`; nominal values are compared by equality through their
+  one-hot columns. All feature weights are 1, as the assignment asks. (decided)
+- **A different nominal value adds 2** in euclidean (squared), manhattan, canberra and clark
+  (two one-hot columns differ by 1 each), **and 1 in heom** (overlap). (note)
+- **Canberra and Clark use the term |x - y| / (|x| + |y|).**
+    - *Why:* it equals the slides' |x - y| / |x + y| for our non-negative, [0,1]-scaled data. When
+      both values are 0 the term is 0/0, which we count as 0: equal values add no distance. (decided)
+- **Clark is implemented as the slides write it, without the usual square root.**
+    - *Why:* the square root is monotonic, so the k nearest neighbours are the same either way;
+      only the inverse-distance weights change. (decided)
+- **Canberra and Clark exaggerate small differences near 0.** They measure relative differences,
+  and min-max scaling puts every attribute's train minimum at 0, so 0.05 vs 0.0 already gives the
+  maximum term (1). (limitation)
+- **Canberra, not Clark, entered the 96-configuration v1 grid.** The assignment asks for one of them;
+  Canberra has an unambiguous formula in Wilson & Martinez (1997). Grid search v2 includes Clark as well
+  (120 configurations). (decided)
+- **heom** (Wilson & Martinez, 1997, section 2.3): numeric |x - y| / range, where range = 1 after
+  our min-max scaling, plus overlap for nominal values. The "unknown -> 1" rule never applies
+  because missing values are imputed first (see *Missing values*). (decided)
+- **On splice, all metrics give identical predictions.** Every attribute is nominal, so each
+  metric is an increasing function of the number m of different values (sqrt(2m), 2m, sqrt(m))
+  and picks the same k nearest neighbours. With inverse distance the weights could differ, but in
+  the grid the four metrics agree fold by fold in all 24 configurations each. (note)
+
+### Voting
+
+- **Inverse distance weighted vote: weight 1/d (p = 1).** Each class sums the weights of its
+  neighbours. (decided)
+- **Neighbours at distance 0 vote alone, with equal weight.**
+    - *Why:* 1/0 is undefined, and an identical case should decide. Among them the vote is a
+      majority vote. (decided)
+- **Ties in total weight go to the tied class of the nearest neighbour**, the same rule as in
+  majority voting, so both schemes always have a single winner. Ties are exact equality of the
+  sums. (decided)
+
+### Retention
+
+- **Policies: never (NR), always (AR), different class (DF, like IB2) and oblivion by goodness
+  (OG)**, from the course slides. (decided)
+- **With retention, the test cases are solved one by one, in file order, and retained with their
+  true class.**
+    - *Why:* DF needs the true class to know that a case was misclassified; we use it in every
+      policy for consistency. *Limitation:* the results depend on the order of the test cases. (decided)
+- **NR uses the batch path (all distances at once).** A test checks that the one-by-one loop with
+  NR gives exactly the same predictions. (decided)
+- **Storage is the size of the case base at the end of the test phase**, reported as % of the
+  training set, so AR, DF and OG can exceed 100%. The runner accepts up to train + test cases. (decided)
+- **OG: every solved case is retained; a case is forgotten when its goodness drops below the
+  threshold.** Initial goodness 0.5, alpha 0.2, threshold 0.5 (issue #11). After each query only
+  its k retrieved neighbours update: G <- G + alpha * (r - G), with r = 1 if the neighbour's class
+  equals the query's true class. (decided)
+- **With initial goodness = threshold, a single wrong retrieval (0.5 -> 0.4) forgets a case.**
+  Confirm these values against the assignment description. (pending)
+- **OG never forgets a case if that would leave fewer than k cases.** (decided)
+
 ## Hyperparameter Tuning (Grid Search)
 
 ### Manual Implementation (`experiments/gridsearch.py`)
@@ -609,6 +710,29 @@ Status: **decided** / **pending**.
 - **Double Dipping**: When applying the Wilcoxon test upon the top models extracted with the Nemenyi test, we are
   actually performing p-hacking. It cannot be avoided as we cannot divide the dataset into train-val-test and we are
   forced to do it this way.
+
+### Best kNN (issue #15, grid search v1)
+
+- *Superseded by grid search v2* (120 configurations, see below); kept as the record of the v1 run.
+- **Grid: 96 configurations** = k {3, 5, 7} x distance {euclidean, manhattan, canberra, heom}
+  x voting {majority, inverse_distance} x retention {never, always, different_class,
+  oblivion_by_goodness}. Champions for the statistical tests: the best configuration of each
+  retention x voting pair (8 champions). (decided)
+- **Selection rule, fixed before looking at the winner:** among the configurations statistically
+  equivalent to the best one (the Nemenyi top group, or every champion when Friedman does not
+  reject), take the lowest storage, then the highest mean accuracy, then the first distance in
+  grid order.
+    - *Why:* without a significant accuracy difference, the cheaper model is preferred. (decided)
+- **Result:** vowel -> euclidean, k=3, inverse_distance, never (0.976, storage 100%; Friedman
+  p = 0.81, all champions equivalent). splice -> euclidean, k=7, inverse_distance,
+  oblivion_by_goodness (0.844, storage 89.7%): best mean rank, best accuracy and lowest storage
+  of the Nemenyi top group. (decided)
+- **k works in opposite directions:** accuracy falls with k on vowel (near-duplicate repetitions
+  of the same speaker) and rises with k on splice (noisy attributes). (note)
+- **OG acts like an editing method on splice:** it forgets more cases than it retains (final
+  case base 89.7% of the train) and improves accuracy. On vowel it does not help. (note)
+- **The champions are chosen on the same 10 folds used for the tests**, so the selected
+  configuration's accuracy is an optimistic estimate (selection bias). (limitation)
 
 ---
 
@@ -760,9 +884,9 @@ Feature selection vs sample reduction (and combining them) is answered by reason
 | Result export                        | Save experiment results using the common 9-column CSV schema                                                        | Python `csv`                                                                                     | `src/experiment_runner.py`            |
 | Random Forest model                  | Train an ensemble of decision trees using one-hot encoded nominals                                                  | `sklearn.ensemble.RandomForestClassifier`                                                        | `src/models/random_forest.py`         |
 | Support Vector Machine model         | Train a Support Vector Machine using one-hot encoded nominals                                                       | `sklearn.svm.SVC`                                                                                | `src/models/svm.py`                   |
-| kNN utilities & runner               | `run_kNN`: vectorized distance matrix, stable tie-breaking, neighbor retrieval, batch and retention modes | Own code + `numpy`                                                                               | `src/models/knn/knn_utils.py`        |
+| kNN utilities & runner               | `kNNAlgorithm` / `run_kNN`: vectorized distance matrix, stable tie-breaking, batch and retention modes | Own code + `numpy`                                                                               | `src/models/knn/knn_utils.py`        |
 | kNN adapter                          | `KNN(BaseClassifier)`, validates hyperparameters, prunes inactive keys, integrates reduction and retention        | Own code                                                                                         | `src/models/knn/knn.py`              |
-| kNN distances                        | Euclidean, Manhattan, Canberra, Clark, HEOM (registry `DISTANCES`); supports single-argument `triu_indices` calls  | Own code + `numpy`                                                                               | `src/models/knn/distances.py`        |
+| kNN distances                        | Euclidean, Manhattan, Canberra, Clark, HEOM (registry `DISTANCES`); one argument gives train x train   | Own code + `numpy`                                                                               | `src/models/knn/distances.py`        |
 | kNN voting                           | Majority (nearest-tied tie-break) and Inverse Distance (registry `VOTING`)                                         | Own code                                                                                         | `src/models/knn/voting.py`           |
 | kNN retention                        | Never, Always, Different Class, Oblivion by Goodness with neighbor score reinforcement (registry `RETENTION`)        | Own code                                                                                         | `src/models/knn/retention.py`        |
 | Instance reduction                   | FCNN (rules 1..4), EENTh (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
@@ -771,6 +895,7 @@ Feature selection vs sample reduction (and combining them) is answered by reason
 | Grid search v2                       | Full pipeline with and without reduction, tests per question, winners                                              | Own code + `concurrent.futures` (stdlib)                                                         | `experiments/grid_search_v2.py`       |
 | Winner plots                         | ROC (macro OvR), PR (micro), confusion matrices, accuracy vs storage / time                                          | `sklearn.metrics` (curves only, not in the kNN), `matplotlib`                                    | `experiments/plot_winners.py`         |
 | Holm correction                      | Step-down adjusted p-values for control comparisons                                                                 | Own code                                                                                         | `src/stats.py`                        |
+| kNN sanity check (tests only)        | Compare predictions with a reference kNN                                                                            | `sklearn.neighbors.KNeighborsClassifier` (only in `tests/`)                                      | `tests/test_knn.py`                   |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |
 | EDA projection                       | PCA in 2D                                                                                                           | Own code (`numpy.linalg.svd`)                                                                    | `experiments/eda.py`                  |
 | EDA export                           | Preprocessed fold as CSV (one-hot + class)                                                                          | `pandas`                                                                                         | `experiments/eda.py`                  |
@@ -799,11 +924,8 @@ Not used (on purpose):
 
 ## Pending decisions
 
-| Topic                                                        | Proposal                                                        | Needs                   |
-|--------------------------------------------------------------|-----------------------------------------------------------------|-------------------------|
-| Distance chosen as "one you may choose"                      | HEOM (simple, no train statistics)                              | Team decision before #8 |
-| Nominal attributes in Euclidean / Manhattan / Clark-Camberra | Use the one-hot version (already used by `euclidean`)           | Team confirmation (#7)  |
-| Clark / Camberra with 0/0                                    | Define the term as 0                                            | Implement in the kNN    |
-| vowel columns                                                | See "Dropped columns" (A/B/C comparison)                        | After the kNN exists    |
-| numpy inside the kNN                                         | Keep the numpy distance matrix                                  | Ask the professor       |
-| kNN with retention (AR / DC / OG)                            | Sequential processing of the test set over a changing case base | #10, #11                |
+| Topic                                    | Proposal                                                                                  | Needs                                   |
+|------------------------------------------|-------------------------------------------------------------------------------------------|-----------------------------------------|
+| Distance chosen as "one you may choose"  | HEOM, implemented (no train statistics needed)                                            | Team confirmation (#8)                  |
+| OG parameters                            | Initial goodness 0.5, alpha 0.2, threshold 0.5 (issue #11); one wrong retrieval forgets a case | Check the assignment description (#11)  |
+| vowel columns                            | See "Dropped columns" (A/B/C comparison)                                                  | The kNN exists: run the comparison      |

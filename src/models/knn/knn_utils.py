@@ -389,3 +389,21 @@ def run_kNN(
         score_function=score_function,
         n_classes=n_classes,
     )
+
+
+def kNNAlgorithm(
+    train: Preprocessed,
+    test: Preprocessed,
+    k: int,
+    distance_function: DistanceFunction,
+    voting_function: VotingFunction,
+    retention_function: RetentionFunction | OblivionByGoodness | None = None,
+) -> list[int]:
+    """Predict one class code per test case with the k nearest cases of the case base.
+
+    Named as the assignment requires (``kNNAlgorithm(...)``). Without a retention policy the
+    case base is the training set; with one, the test cases are solved in order.
+    """
+    return run_kNN(
+        train, test, k, distance_function, voting_function, retention_function
+    ).predictions
