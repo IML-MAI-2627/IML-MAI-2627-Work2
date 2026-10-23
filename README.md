@@ -7,18 +7,86 @@ including the effect of instance reduction on accuracy, efficiency and storage.
 Datasets: `splice` (3190 cases, nominal) and `vowel` (990 cases, numeric + nominal),
 both with predefined 10-fold train/test splits in `datasets/`.
 
-## Requirements
+## Team
 
-- Python 3.11
-- Only the packages in `requirements.txt` (pinned versions).
+- Pol Marsol Torras
+- David Fernández Gómez
+- Ran Fan
+- Mariam Shehadeh
 
-## Setup
+## Environment
+
+- Python: 3.11 (tested with 3.11.16)
+- Tested operating system: Ubuntu 26.04.1 LTS
+- Packages: only those in `requirements.txt` (pinned versions): numpy, scipy, pandas,
+  scikit-learn, matplotlib, seaborn.
+- Hardware: a normal CPU is enough (no GPU). The full grid search takes about 2 hours on one
+  process; every other command takes seconds to a few minutes.
+
+## Installation
+
+Open a terminal in the code folder (the project root, `code/` in the delivery ZIP):
 
 ```bash
 python3.11 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+source .venv/bin/activate              # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
+
+Run the commands below from the same folder with the environment active, and `deactivate` at
+the end.
+
+## Project structure
+
+- `datasets/` — the predefined 10-fold train/test ARFF files of `splice` and `vowel` (never modified).
+- `src/` — the library code, used by every entry point:
+    - `config.py` — paths, datasets and the seed (42).
+    - `arff_parser.py` — reads a fold into `TrainMatrix` / `TestMatrix`.
+    - `preprocessing.py` — `Preprocessor` (fit on train only: min-max to [0,1], imputation,
+      nominal codes, dropped columns) and the `Preprocessed` container.
+    - `models/` — the classifiers, all with the same interface (`BaseClassifier` in
+      `classifier_base.py`: create with a parameter dict, call `fit_predict(train, test)`):
+      `knn/` (our kNN: `knn.py`, `distances.py`, `voting.py`, `retention.py`, `reduction.py` with
+      FCNN, EENTh, DROP3 and DEL), `svm.py`, `random_forest.py`, `majority_baseline.py`.
+    - `experiment_runner.py` — runs a classifier on the 10 folds, measures accuracy, time and
+      storage, writes the results CSV.
+    - `stats.py` — Friedman + Iman-Davenport, Nemenyi, Bonferroni-Dunn, Wilcoxon, Holm.
+- `experiments/` — the entry points (see *Entry points*).
+- `scripts/make_submission.py` — builds the delivery ZIP.
+- `results/` — outputs (CSV, Markdown, PNG); the grid search results are committed in
+  `results/gridsearch_v2/`.
+- `tests/` — pytest tests. `docs/DECISIONS.md` — every design decision and its reason.
+  `report/` — notes for the report.
+
+## Execution order
+
+1. `python experiments/eda.py --dataset all --fold 0` — optional, independent.
+2. `python experiments/grid_search_v2.py --dataset all --stage run` — the experiments
+   (about 2 h); writes one CSV per configuration in `results/gridsearch_v2/`.
+3. `python experiments/grid_search_v2.py --dataset all --stage evaluate` — tests and reports;
+   **needs the CSVs of step 2** and writes `results/gridsearch_v2/winners.json`.
+4. `python experiments/plot_winners.py --results results/gridsearch_v2` — **needs
+   `winners.json`** (step 3).
+5. `python experiments/vowel_columns.py` — **needs `winners.json`** (step 3).
+6. `python experiments/selection_bias.py` — **needs the CSVs of step 2**.
+
+The results of steps 2-3 are committed, so steps 3-6 can be run directly without repeating
+step 2. `experiments/run.py` runs one configuration on its own and depends on nothing.
+
+## Entry points
+
+| File | Purpose | Command (from the project root) |
+|---|---|---|
+| `experiments/run.py` | One classifier and parameter set on the 10 folds | `python experiments/run.py --dataset vowel --classifier knn --k 3 --distance heom` |
+| `experiments/eda.py` | Exploratory figures and summary | `python experiments/eda.py --dataset all --fold 0` |
+| `experiments/grid_search_v2.py` | All experiments and statistical tests | `python experiments/grid_search_v2.py --dataset all --stage all` |
+| `experiments/plot_winners.py` | ROC/PR, confusion and trade-off plots of the winners | `python experiments/plot_winners.py --results results/gridsearch_v2` |
+| `experiments/vowel_columns.py` | Which vowel columns to keep (A/B/C comparison) | `python experiments/vowel_columns.py` |
+| `experiments/selection_bias.py` | Leave-one-fold-out estimate of the selection bias | `python experiments/selection_bias.py` |
+| `scripts/make_submission.py` | Delivery ZIP | `python scripts/make_submission.py --report path/to/report.pdf` |
+
+Each one is described below with all its options and outputs.
 
 ## Running the tests
 
@@ -411,6 +479,33 @@ one of the grid search, caches the scores in `plots/cache/` and writes to
 (accuracy, solve time, reduction time and storage per technique for kNN, SVM and RF). `--retrain` ignores the
 cache; `--dataset` limits it to one dataset.
 
+## vowel columns
+
+```bash
+python experiments/vowel_columns.py
+```
+
+Runs the best vowel kNN of grid v2 (read from `winners.json`) with three column sets: (A) the 10
+numeric features, (B) A + `Sex` (the current preprocessing) and (C) B + `Speaker_Number`, and
+compares them with Friedman and pairwise Wilcoxon (Holm). Writes `vowel_columns.md` (tables, tests
+and how often the nearest training case is the same speaker) and `vowel_columns_accuracy.csv`
+(per fold) to `results/vowel_columns/`. Options (both flags, optional): `--results` grid folder
+with `winners.json` (default `results/gridsearch_v2`), `--out` output folder (default
+`results/vowel_columns`). About 3 s.
+
+## Selection bias
+
+```bash
+python experiments/selection_bias.py
+```
+
+Leave-one-fold-out estimate of the bias of selecting and testing on the same 10 folds: for each
+fold, the best configuration on the other 9 (same rule as the grid) is scored on it. One row per
+dataset and model (kNN, SVM, RF, without reduction). Writes `selection_bias.md` and
+`selection_bias.csv` to `results/selection_bias/`. Options (both flags, optional): `--results`
+grid folder (default `results/gridsearch_v2`), `--out` output folder (default
+`results/selection_bias`). About 3 s.
+
 ## Building the delivery ZIP
 
 ```bash
@@ -423,15 +518,6 @@ Only files tracked by git are packed. It fails if `requirements.txt` lists a pac
 allowed ones, if any packed file imports one, if scikit-learn is imported outside the SVM, RF and
 preprocessing, or if the kNN / reduction (`src/models/knn/`) imports anything but numpy. Options: `--with-results` (committed results),
 `--with-tests` (tests, need pytest), `--draft` (no report, for a dry run), `--out <zip>`.
-
-## Layout
-
-- `src/` — source code
-- `tests/` — tests
-- `experiments/` — experiment scripts
-- `results/` — CSV and MD results
-- `report/` — report sources
-- `datasets/` — ARFF folds (do not modify)
 
 ---
 

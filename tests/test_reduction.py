@@ -1,5 +1,7 @@
 """Tests for instance reduction algorithms: FCNN, EENTh, and DROP."""
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -394,6 +396,14 @@ def test_invalid_parameters():
 
     with pytest.raises(ValueError, match="positive integer"):
         eenth(dummy, k=-1)
+
+
+def test_eenth_rejects_training_data_without_every_class():
+    """A class of the header with no training case is a clear error, not an IndexError later."""
+    data = make_preprocessed([[0.0], [0.1], [0.9], [1.0]], [0, 0, 2, 2])
+    data = dataclasses.replace(data, class_values=("a", "b", "c"))
+    with pytest.raises(ValueError, match=r"every class.*\['b'\]"):
+        eenth(data, k=1)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,7 @@
+dataset,model,configurations,reported,leave_one_fold_out,bias,distinct_chosen,rounds_with_winner
+splice,kNN,120,0.843892,0.843892,0.000000,1,10
+splice,SVM,168,0.968983,0.968040,0.000943,3,8
+splice,RF,96,0.968351,0.966785,0.001565,2,5
+vowel,kNN,120,0.978788,0.974747,0.004040,2,7
+vowel,SVM,168,0.990909,0.989899,0.001010,2,9
+vowel,RF,96,0.979798,0.977778,0.002020,2,8
