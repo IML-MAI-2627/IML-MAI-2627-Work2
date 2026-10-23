@@ -91,8 +91,14 @@ Status: **decided** / **pending**.
 - **`Sex` is kept.** It has a physical meaning (voice frequency) and only 2 values. (decided)
 - The drop list is configurable (`Preprocessor(drop=...)`, defaults in `DEFAULT_DROP`). An unknown
   column name raises `ValueError`, so a typo is not silently ignored.
-- **Pending:** confirm with a comparison once the kNN exists: (A) 10 numeric, (B) A + `Sex`, (C) B + `Speaker_Number`.
-  Report it in the analysis. (pending)
+- **Checked with the best vowel kNN of grid v2** (`python experiments/vowel_columns.py`, output in
+  `results/vowel_columns/`): (A) 10 numeric, (B) A + `Sex` (current), (C) B + `Speaker_Number`. Only the drop list
+  changes. All three give a mean accuracy of 0.9788 over the 10 folds (Friedman + Iman-Davenport p = 1; every
+  pairwise Wilcoxon p = 1 after Holm). The column choice makes no difference, so the current choice (B) stays.
+  (decided)
+    - *Why it makes no difference:* with the 10 numeric features alone, the nearest training case of a test case is
+      already the same speaker in 972 of 990 test cases (98.2%), and the same speaker and vowel in 965 (97.5%), so
+      `Speaker_Number` and `Sex` add nothing the features do not already say.
 
 ### How the preprocessing was checked
 
@@ -114,11 +120,22 @@ Status: **decided** / **pending**.
 
 - **vowel has a ceiling effect.** 1-NN already reaches ~98.9%. Likely reason: the dataset has
   15 speakers x 11 vowels x 6 repetitions, and the random stratified folds put repetitions of the
-  same speaker in both train and test, so a near-duplicate of each test row is usually in train.
-  Expected consequences: very small differences between metrics / K / voting schemes, possibly
-  few significant results in the statistical tests, and room for heavy instance reduction without
-  losing accuracy. (hypothesis, to be confirmed)
+  same speaker in both train and test, so a near-duplicate of each test row is usually in train
+  (confirmed: the nearest training case is the same speaker in 98.2% of test cases, see
+  *Dropped columns*). Expected consequences: very small differences between metrics / K / voting
+  schemes and few significant results in the statistical tests. (note)
 
+- **splice has exact duplicates.** 185 extra copies of identical sequences in the 3190 rows, and one sequence with two
+  classes (IE and N). Each training fold has 143-160 extra copies (5.0-5.6%), the two-class sequence is in the
+  training set of 9 of the 10 folds, and 294 test rows (9.2% over the 10 folds) have an identical training row with
+  the same class. In the kNN a repeated sequence can take several of the K places and vote once per copy.
+    - *Not every reduction removes them* (best splice kNN, reduced sets of the grid v2 cache): FCNN (condensation)
+      leaves at most 1 extra copy per fold, DROP3 9-20 and DEL 16-28 (hybrids), while EENTh (editing) keeps
+      142-159, because an identical copy with the same class agrees with its neighbours. (note)
+    - *Why they stay:* removing duplicates inside the train does not stop a test row from having its twin there
+      (one copy stays); removing the training rows that match a test row would use the test set (leakage); and the
+      assignment says "You cannot modify or perform a different cross-validation on the datasets" (Section 1.1).
+      (decided)
 - **splice is imbalanced:** class N is ~52% of the train, which is also the majority-class baseline. (note)
 - **splice: informative positions are concentrated in the middle of the sequence (~27-35);** the rest look close to
   uniform, so an unweighted distance (HEOM) may be diluted by noisy attributes. (hypothesis)
@@ -492,7 +509,8 @@ Status: **decided** / **pending**.
       `<function ...>`. (decided)
 - **No `random_state`:** the kNN is deterministic. (decided)
 - **`storage` is the size of the case base at the end of the test phase:** the (reduced) training set
-  without retention; more or less with AR, DF and OG (see *Retention*). (decided)
+  without retention; more or less with AR, DF and OG (see *Retention*, which also explains why the report's
+  storage is the % of the training set kept instead). (decided)
 
 ### Case-Base Retention Policies (`retention.py`)
 
@@ -583,6 +601,10 @@ Status: **decided** / **pending**.
   - **Passing reduction parameters without specifying `--reduction` raises `ValueError`:**
     If any reduction parameter (`reduction_k`, `reduction_distance`, `reduction_voting`, `version`, `threshold`, `distance`, `voting`) is passed when `--reduction` is omitted, execution halts immediately with `ValueError` stating that `--reduction` must be specified, instead of silently dropping the parameter or ignoring user intent.
   - Incompatible parameters passed to `MajorityBaseline` also raise `ValueError`.
+  - **EENTh needs every class of the header in the training data**, or it raises `ValueError` naming the
+    missing classes. Its class posteriors have one column per class indexed by class code, so a missing class
+    used to fail later with an `IndexError` (or, if it was the last code, go unnoticed). Our 10 folds are
+    stratified and always contain every class, so the grid is not affected.
     - *Why:* Prevents configuration errors and typos from being silently ignored or causing silent misbehavior during long multi-fold runs. (decided)
 - **Default parameter injection and CSV synchronization.**
   Default values are injected for omitted parameters (`k=3`, `distance="euclidean"`, `voting="majority"`, `retention="never"`, `reduction="none"`). Active reduction parameters (`version` for FCNN/DROP, `threshold` for EENTh, `reduction_k` for non-kNN models) are synchronized into `self.params` and serialized in the CSV results table. (decided)
@@ -619,10 +641,17 @@ Status: **decided** / **pending**.
 - **heom** (Wilson & Martinez, 1997, section 2.3): numeric |x - y| / range, where range = 1 after
   our min-max scaling, plus overlap for nominal values. The "unknown -> 1" rule never applies
   because missing values are imputed first (see *Missing values*). (decided)
-- **On splice, all metrics give identical predictions.** Every attribute is nominal, so each
-  metric is an increasing function of the number m of different values (sqrt(2m), 2m, sqrt(m))
-  and picks the same k nearest neighbours. With inverse distance the weights could differ, but in
-  the grid the four metrics agree fold by fold in all 24 configurations each. (note)
+- **On splice, with majority voting all five metrics give identical predictions.** Every attribute
+  is nominal, so each metric is an increasing function of the number m of different values
+  (euclidean sqrt(2m), manhattan, canberra and clark 2m, heom sqrt(m)): they pick the same k
+  nearest neighbours, and with retention the case base evolves in the same way. (note)
+- **With inverse distance they can differ**, because the weights 1/d differ between the two groups
+  {euclidean, heom} (proportional distances, same vote) and {manhattan, canberra, clark} (equal
+  distances). In grid v2 (`results/gridsearch_v2/splice/base/knn/`, grouping the 120 configurations
+  by k, voting, retention and fold) the confusion matrices of the five metrics are identical in all
+  120 majority cases and in 116 of the 120 inverse-distance cases, so 236 of 240 overall. The 4
+  exceptions are k=5, inverse distance, fold 9 (every retention policy), where the two groups differ
+  by one correct prediction. Inside each group they always agree. (note)
 
 ### Voting
 
@@ -645,8 +674,18 @@ Status: **decided** / **pending**.
       policy for consistency. *Limitation:* the results depend on the order of the test cases. (decided)
 - **NR uses the batch path (all distances at once).** A test checks that the one-by-one loop with
   NR gives exactly the same predictions. (decided)
-- **Storage is the size of the case base at the end of the test phase**, reported as % of the
-  training set, so AR, DF and OG can exceed 100%. The runner accepts up to train + test cases. (decided)
+- **The CSV `storage` column is the size of the case base at the end of the test phase** (the *final case
+  base*), as % of the training set, so AR, DF and OG can exceed 100%. The runner accepts up to train + test
+  cases. (decided)
+- **Storage in the report (decided by the group): the % of the training set that is kept.** 100% without
+  reduction, and the size of the reduced set with reduction, whatever the retention policy. The effect of the
+  retention on the case base (the CSV `storage` of the kNN runs) is presented separately as the *final case base*.
+    - *Why:* storage is the memory a model needs before it sees the test set, so it is comparable between kNN,
+      SVM and RF and does not depend on the order of the test cases; retention is a different question
+      ("Retention vs reduction").
+    - *Where the number comes from:* without reduction it is 100%; with reduction it is the CSV `storage` of any
+      run without retention on that reduced set (SVM, RF or the kNN with NR), which is the reduced size / training
+      size. (decided)
 - **OG: every solved case is retained; a case is forgotten when its goodness drops below the
   threshold.** Initial goodness 0.5, alpha 0.2, threshold 0.5 (issue #11). After each query only
   its k retrieved neighbours update: G <- G + alpha * (r - G), with r = 1 if the neighbour's class
@@ -734,7 +773,16 @@ Status: **decided** / **pending**.
 
 ### Best kNN (issue #15, grid search v1)
 
-- *Superseded by grid search v2* (120 configurations, see below); kept as the record of the v1 run.
+- **This is the v1 result. The report uses grid search v2** (120 configurations, selection rule: highest mean
+  accuracy, ties -> lower time; see *Grid search v2*). Official v2 winners (`results/gridsearch_v2/winners.json`):
+    - **splice:** euclidean, k=7, inverse_distance, oblivion_by_goodness, accuracy 0.8439 (same configuration as v1).
+    - **vowel:** heom, k=3, inverse_distance, always, accuracy 0.9788.
+    - On vowel, **never retain (NR) is statistically equivalent to always retain (AR) and cheaper**: the best
+      configuration of each retention policy cannot be told apart (Friedman + Iman-Davenport p = 0.954,
+      `results/gridsearch_v2/vowel/tests.csv`, "kNN retention best"). The best NR (heom, k=3, inverse_distance)
+      reaches 0.9758 vs 0.9788, keeps the case base at 100% of the training set instead of 111%, and solves a fold
+      in 0.0124 s vs 0.0144 s. The report presents AR as the winner by the rule and NR as the cheaper equivalent.
+- Everything below is kept as the record of the v1 run.
 - **Grid: 96 configurations** = k {3, 5, 7} x distance {euclidean, manhattan, canberra, heom}
   x voting {majority, inverse_distance} x retention {never, always, different_class,
   oblivion_by_goodness}. Champions for the statistical tests: the best configuration of each
@@ -851,6 +899,22 @@ Feature selection vs sample reduction (and combining them) is answered by reason
   on kNN and then applied, not re-chosen, to SVM and RF; (3) the selection rule is fixed in advance and the tests
   never choose the winner, so we do not test, filter by p-value and test again on the survivors; (4) the top-5
   test is reported as "can the winner be told apart from its runner-ups", which is the conservative reading.
+- **How big the bias is (leave-one-fold-out estimate, `python experiments/selection_bias.py`, output in
+  `results/selection_bias/`):** for each fold f, pick the best configuration on the other 9 folds with the same
+  rule as the grid and score it on f; the mean of the 10 held-out accuracies never selects on the fold it scores.
+  Base configurations, no reduction:
+
+  | Dataset | Model | Reported best mean | Leave-one-fold-out | Bias |
+  |---|---|---|---|---|
+  | splice | kNN | 0.8439 | 0.8439 | +0.0000 |
+  | splice | SVM | 0.9690 | 0.9680 | +0.0009 |
+  | splice | RF | 0.9684 | 0.9668 | +0.0016 |
+  | vowel | kNN | 0.9788 | 0.9747 | +0.0040 |
+  | vowel | SVM | 0.9909 | 0.9899 | +0.0010 |
+  | vowel | RF | 0.9798 | 0.9778 | +0.0020 |
+
+  The bias is at most 0.004 (0.4 points), smaller than the gaps between kNN, SVM and RF on each dataset, so it does
+  not change any conclusion; the reported accuracies are still an upper bound. (limitation, measured)
 - **Considered and rejected:** select on folds 0-4 and test on folds 5-9. It is honest, but with N = 5 the exact
   Wilcoxon cannot reach p < 0.05 (smallest two-sided p = 2/32 = 0.0625) and Friedman loses most of its power.
 
@@ -917,6 +981,8 @@ Feature selection vs sample reduction (and combining them) is answered by reason
 | Instance reduction                   | FCNN (rules 1..4), EENTh (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
 | Grid search v2                       | Full pipeline with and without reduction, tests per question, winners                                              | Own code + `concurrent.futures` (stdlib)                                                         | `experiments/grid_search_v2.py`       |
 | Winner plots                         | ROC (macro OvR), PR (micro), confusion matrices, accuracy vs storage / time                                          | Own code + `numpy` (curves, AUC, AP), `matplotlib`                                               | `experiments/plot_winners.py`         |
+| vowel columns check                  | Best vowel kNN with three drop lists, Friedman + Wilcoxon/Holm                                                       | Own code (project `Preprocessor`, `KNN`, `stats`)                                                | `experiments/vowel_columns.py`        |
+| Selection bias                       | Leave-one-fold-out estimate with the grid's selection rule                                                           | Own code + `pandas` (grid v2 helpers)                                                            | `experiments/selection_bias.py`       |
 | Library check                        | Allowed packages; scikit-learn only in SVM, RF and preprocessing; only numpy in `src/models/knn/`                | Own code (`ast`, `git ls-files`)                                                                 | `scripts/make_submission.py`          |
 | Holm correction                      | Step-down adjusted p-values for control comparisons                                                                 | Own code                                                                                         | `src/stats.py`                        |
 | kNN sanity check (tests only)        | Compare predictions with a reference kNN                                                                            | `sklearn.neighbors.KNeighborsClassifier` (only in `tests/`)                                      | `tests/test_knn.py`                   |
@@ -951,7 +1017,7 @@ Not used (on purpose):
 Closed (23 Oct): **HEOM** is the metric "you may choose" (implemented and in both grids; best kNN distance on
 vowel). **OG parameters** follow the assignment (Section 1.2, 3c): G_0 = 0.5, alpha = 0.2, and a case is removed
 whenever G_t < G_0, so one wrong retrieval (0.5 -> 0.4) forgets it; that is the specified behaviour.
+**vowel columns**: compared, no difference, B stays (see *Dropped columns*). **Storage in the report**: % of the
+training set kept; the final case base is presented apart (see *Retention*).
 
-| Topic                                    | Proposal                                                                                  | Needs                                   |
-|------------------------------------------|-------------------------------------------------------------------------------------------|-----------------------------------------|
-| vowel columns                            | See "Dropped columns" (A/B/C comparison)                                                  | Team: run it, or state in the report that it is out of scope |
+No decisions are pending.
