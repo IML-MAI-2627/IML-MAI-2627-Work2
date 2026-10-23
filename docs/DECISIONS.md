@@ -875,7 +875,9 @@ Feature selection vs sample reduction (and combining them) is answered by reason
   one-vs-rest: ROC macro-averaged, PR micro-averaged; legends give macro AUC / macro AP. *Limitation:* SVM decision
   values of different folds are not on exactly the same scale; pooling is the usual simplification. kNN scores
   are vote shares (few distinct values for small K), so its curves have few steps. (decided)
-- `sklearn.metrics` is used only to draw the curves of every model, never inside the kNN or the reduction.
+- **ROC / PR curves, AUC and average precision are our own numpy code**, not `sklearn.metrics`: the assignment
+  allows scikit-learn only for SVM, RF and the preprocessing. Checked against `sklearn.metrics` on the scores of
+  all 12 winners (same curve points; AUC and AP equal up to 1e-16). (decided)
 - Plots: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` (row-normalised colour, counts for splice),
   `tradeoff_<dataset>.png` (accuracy vs storage and vs solve time for each model and technique),
   `reduction_<dataset>.png` (per technique: accuracy ± std over folds, solve time, reduction time, storage;
@@ -914,7 +916,8 @@ Feature selection vs sample reduction (and combining them) is answered by reason
 | kNN retention                        | Never, Always, Different Class, Oblivion by Goodness with neighbor score reinforcement (registry `RETENTION`)        | Own code                                                                                         | `src/models/knn/retention.py`        |
 | Instance reduction                   | FCNN (rules 1..4), EENTh (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
 | Grid search v2                       | Full pipeline with and without reduction, tests per question, winners                                              | Own code + `concurrent.futures` (stdlib)                                                         | `experiments/grid_search_v2.py`       |
-| Winner plots                         | ROC (macro OvR), PR (micro), confusion matrices, accuracy vs storage / time                                          | `sklearn.metrics` (curves only, not in the kNN), `matplotlib`                                    | `experiments/plot_winners.py`         |
+| Winner plots                         | ROC (macro OvR), PR (micro), confusion matrices, accuracy vs storage / time                                          | Own code + `numpy` (curves, AUC, AP), `matplotlib`                                               | `experiments/plot_winners.py`         |
+| Library check                        | Allowed packages; scikit-learn only in SVM, RF and preprocessing; only numpy in `src/models/knn/`                | Own code (`ast`, `git ls-files`)                                                                 | `scripts/make_submission.py`          |
 | Holm correction                      | Step-down adjusted p-values for control comparisons                                                                 | Own code                                                                                         | `src/stats.py`                        |
 | kNN sanity check (tests only)        | Compare predictions with a reference kNN                                                                            | `sklearn.neighbors.KNeighborsClassifier` (only in `tests/`)                                      | `tests/test_knn.py`                   |
 | EDA figures                          | Class counts, histograms, nucleotide heatmaps                                                                       | `matplotlib`, `seaborn`                                                                          | `experiments/eda.py`                  |

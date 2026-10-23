@@ -29,12 +29,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from sklearn.metrics import (  # noqa: E402
-    auc,
-    average_precision_score,
-    precision_recall_curve,
-    roc_curve,
-)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -116,6 +110,35 @@ def onehot(y: np.ndarray, n_classes: int) -> np.ndarray:
     return np.eye(n_classes, dtype=int)[y]
 
 
+# ROC / PR with numpy (own code): scikit-learn is only used for SVM, RF and preprocessing.
+def _cumulative_counts(positives: np.ndarray, score: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """True and false positives when the threshold goes down through each distinct score."""
+    order = np.argsort(-score, kind="mergesort")
+    positives, score = positives[order], score[order]
+    last_of_each_score = np.r_[np.flatnonzero(np.diff(score)), len(score) - 1]
+    tps = np.cumsum(positives)[last_of_each_score]
+    fps = last_of_each_score + 1 - tps
+    return tps.astype(float), fps.astype(float)
+
+
+def roc_curve(positives: np.ndarray, score: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(false positive rate, true positive rate) from (0, 0) to (1, 1); ties form one step."""
+    tps, fps = _cumulative_counts(np.asarray(positives, dtype=bool), np.asarray(score, dtype=float))
+    return np.r_[0.0, fps / fps[-1]], np.r_[0.0, tps / tps[-1]]
+
+
+def precision_recall(positives: np.ndarray, score: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(precision, recall) for decreasing thresholds, starting at recall 0 with precision 1."""
+    tps, fps = _cumulative_counts(np.asarray(positives, dtype=bool), np.asarray(score, dtype=float))
+    return np.r_[1.0, tps / (tps + fps)], np.r_[0.0, tps / tps[-1]]
+
+
+def average_precision(positives: np.ndarray, score: np.ndarray) -> float:
+    """AP = sum over thresholds of (R_n - R_{n-1}) * P_n (no interpolation)."""
+    precision, recall = precision_recall(positives, score)
+    return float(np.sum(np.diff(recall) * precision[1:]))
+
+
 def macro_roc(y: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     """Macro-averaged one-vs-rest ROC: mean TPR over classes on a common FPR grid."""
     grid = np.linspace(0, 1, 201)
@@ -124,9 +147,9 @@ def macro_roc(y: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray, np.ndarray
         positives = y == c
         if positives.all() or not positives.any():
             continue
-        fpr, tpr, _ = roc_curve(positives, scores[:, c])
+        fpr, tpr = roc_curve(positives, scores[:, c])
         tprs.append(np.interp(grid, fpr, tpr))
-        aucs.append(auc(fpr, tpr))
+        aucs.append(float(np.trapezoid(tpr, fpr)))
     curve = np.mean(tprs, axis=0)
     curve[0] = 0.0
     return grid, curve, float(np.mean(aucs))
@@ -156,8 +179,10 @@ def plot_roc_pr(dataset: str, runs: dict, winners: dict, n_classes: int, out: Pa
         fpr, tpr, roc_auc = macro_roc(y, s)
         ax_roc.plot(fpr, tpr, label=f"{label(key, winners)} (AUC {roc_auc:.3f})", **style(key))
         y1 = onehot(y, n_classes)
-        precision, recall, _ = precision_recall_curve(y1.ravel(), s.ravel())
-        ap = average_precision_score(y1, s, average="macro")
+        precision, recall = precision_recall(y1.ravel(), s.ravel())
+        ap = np.mean(
+            [average_precision(y1[:, c], s[:, c]) for c in range(n_classes) if y1[:, c].any()]
+        )
         ax_pr.plot(recall, precision, label=f"{label(key, winners)} (AP {ap:.3f})", **style(key))
     ax_roc.plot([0, 1], [0, 1], color="#b5b4ae", linewidth=1, linestyle=":")
     ax_roc.set(
