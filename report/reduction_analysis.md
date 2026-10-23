@@ -12,11 +12,12 @@ prototype adds its nearest enemy), EENTh threshold 0.0 (plain probabilistic edit
 DEL. SVM and RF are trained on exactly the same reduced sets (same K, distance and voting as
 the best kNN), so the three models are compared on the same prototypes.
 
-**How to read storage.** For SVM and RF, storage is the size of the reduced training set. For
-the kNN it is the final case base, so it also reflects the retention policy of the best kNN:
-Oblivion by Goodness forgets cases in splice (89.7% without reduction), Always Retain adds the
-solved test cases in vowel (111.1% without reduction). The pure effect of a technique is the
-SVM / RF column.
+**How to read storage.** Storage is the percentage of the training set that is kept (decided by
+the group, `docs/DECISIONS.md`): 100% without reduction, the size of the reduced set with
+reduction, the same for kNN, SVM and RF. The kNN's *final case base* is shown apart: it also
+reflects the retention policy of the best kNN, which changes the case base during the test phase
+(Oblivion by Goodness forgets cases in splice, 89.7% without reduction; Always Retain adds the
+solved test cases in vowel, 111.1% without reduction).
 
 **How to read time.** `time` includes the reduction; `solve time` = `time - reduction_time` is
 fit + predict on the reduced set. The reduction is a one-off cost, reported separately.
@@ -31,18 +32,18 @@ Oblivion by Goodness; vowel K = 3, HEOM, inverse-distance vote, Always Retain.
 
 ### splice
 
-| technique | accuracy | macro F1 | storage kNN (%) | reduced set (%) | solve time (s) | reduction (s) |
+| technique | accuracy | macro F1 | storage (%) | final case base kNN (%) | solve time (s) | reduction (s) |
 |---|---|---|---|---|---|---|
-| none | 0.8439 | 0.8407 | 89.7 | 100.0 | 0.078 | - |
-| FCNN | 0.8530 | 0.8414 | 30.7 | 41.8 | 0.080 (median 0.055) | 2.1 |
-| DEL | 0.8492 | 0.8347 | 33.6 | 42.9 | 0.054 | 24.2 |
-| DROP3 | 0.8482 | 0.8297 | 23.3 | 29.9 | 0.045 | 17.5 |
-| EENTh | 0.8166 | 0.8160 | 71.8 | 82.6 | 0.084 | 0.6 |
+| none | 0.8439 | 0.8407 | 100.0 | 89.7 | 0.078 | - |
+| FCNN | 0.8530 | 0.8414 | 41.8 | 30.7 | 0.080 (median 0.055) | 2.1 |
+| DEL | 0.8492 | 0.8347 | 42.9 | 33.6 | 0.054 | 24.2 |
+| DROP3 | 0.8482 | 0.8297 | 29.9 | 23.3 | 0.045 | 17.5 |
+| EENTh | 0.8166 | 0.8160 | 82.6 | 71.8 | 0.084 | 0.6 |
 
 - **Accuracy:** significant differences (Friedman p = 3.2e-4), but only **EENTh is
   significantly worse** than the unreduced kNN. FCNN, DEL and DROP3 have a slightly *higher*
   mean than the full kNN (+0.4 to +0.9 points), not significant: they keep the accuracy while
-  storing a third of the training set.
+  storing 30-43% of the training set.
 - **Efficiency:** only DROP3 is significantly faster to solve (0.045 s vs 0.078 s). FCNN is
   faster in 8 of 10 folds (median 0.055 s); its mean is inflated by one outlier fold (0.24 s),
   which also hides it from the rank test. Gains are small in absolute terms, because the
@@ -61,13 +62,13 @@ Oblivion by Goodness; vowel K = 3, HEOM, inverse-distance vote, Always Retain.
 
 ### vowel
 
-| technique | accuracy | macro F1 | storage kNN (%) | reduced set (%) | solve time (s) | reduction (s) |
+| technique | accuracy | macro F1 | storage (%) | final case base kNN (%) | solve time (s) | reduction (s) |
 |---|---|---|---|---|---|---|
-| none | 0.9788 | 0.9787 | 111.1 | 100.0 | 0.0144 | - |
-| EENTh | 0.9515 | 0.9512 | 108.1 | 97.0 | 0.0149 | 0.1 |
-| DEL | 0.9414 | 0.9411 | 45.3 | 34.2 | 0.0081 | 2.0 |
-| FCNN | 0.9404 | 0.9400 | 41.1 | 30.0 | 0.0094 (median 0.0069) | 0.2 |
-| DROP3 | 0.9101 | 0.9098 | 42.8 | 31.7 | 0.0081 | 1.5 |
+| none | 0.9788 | 0.9787 | 100.0 | 111.1 | 0.0144 | - |
+| EENTh | 0.9515 | 0.9512 | 97.0 | 108.1 | 0.0149 | 0.1 |
+| DEL | 0.9414 | 0.9411 | 34.2 | 45.3 | 0.0081 | 2.0 |
+| FCNN | 0.9404 | 0.9400 | 30.0 | 41.1 | 0.0094 (median 0.0069) | 0.2 |
+| DROP3 | 0.9101 | 0.9098 | 31.7 | 42.8 | 0.0081 | 1.5 |
 
 - **Accuracy:** every technique lowers it (Friedman p = 7.4e-12); **FCNN, DEL and DROP3 are
   significantly worse** than the full kNN (-3.7 to -6.9 points). EENTh (-2.7 points) is not
@@ -83,8 +84,8 @@ Oblivion by Goodness; vowel K = 3, HEOM, inverse-distance vote, Always Retain.
 ### Which reduction technique is best for the kNN? Does reduction help?
 
 - **splice:** reduction helps in storage and does not hurt accuracy. **FCNN** is the best
-  overall choice: highest mean accuracy, 31% storage and the cheapest reduction (2 s). DROP3 is
-  the choice when storage and solve time matter most (23%, the only significant speed-up), at
+  overall choice: highest mean accuracy, 42% storage and the cheapest reduction (2 s). DROP3 is
+  the choice when storage and solve time matter most (30%, the only significant speed-up), at
   8 times the reduction cost; it is statistically tied with FCNN in accuracy. DEL gives no
   advantage over DROP3 and is the slowest to compute. EENTh is the worst.
 - **vowel:** reduction does not help: it costs accuracy for a saving that is irrelevant at
@@ -99,16 +100,18 @@ Friedman + Nemenyi over the best configuration of each retention policy and the 
 kNN (`cd_<dataset>_retention_vs_reduction_accuracy.png`):
 
 - **splice:** FCNN, DEL, DROP3 and all four retention policies are in the same Nemenyi group
-  (only EENTh is behind). Oblivion by Goodness, the best retention policy, already forgets 10%
-  of the cases at no preprocessing cost; reduction reaches the same accuracy with 23-34% of the
-  cases but needs 2-24 s per fold beforehand.
+  (only EENTh is behind). Oblivion by Goodness, the best retention policy, keeps the whole
+  training set (storage 100%) and forgets 10% of the cases during the test phase (final case base
+  89.7%) at no preprocessing cost; reduction reaches the same accuracy storing 30-43% of the
+  training set but needs 2-24 s per fold beforehand.
 - **vowel:** the four retention policies are the top group (with EENTh); FCNN, DEL and DROP3
   are significantly behind. Retention keeps (or adds) cases, which is what this dataset needs.
 - So improving retention is the cheaper way to keep accuracy, and the right choice when the case
   base is small; reduction is the way to cut storage substantially, and it only keeps accuracy
   when the training set is redundant. Both act on the same case base, so they can be combined:
-  in splice FCNN + Oblivion by Goodness gives 30.7% storage, below FCNN alone (41.8%), with the
-  best mean accuracy of all kNN variants.
+  in splice FCNN stores 41.8% of the training set, and Oblivion by Goodness then forgets part of
+  it during the test phase (final case base 30.7%), with the best mean accuracy of all kNN
+  variants.
 
 ---
 
