@@ -420,7 +420,8 @@ python scripts/make_submission.py --report path/to/report.pdf
 Creates `dist/submission.zip` with `report.pdf` at the root and the project under `code/`
 (README, requirements, `src/`, `experiments/`, `datasets/`), as the course instructions ask.
 Only files tracked by git are packed. It fails if `requirements.txt` lists a package outside the
-allowed ones or if any packed file imports one. Options: `--with-results` (committed results),
+allowed ones, if any packed file imports one, if scikit-learn is imported outside the SVM, RF and
+preprocessing, or if the kNN / reduction (`src/models/knn/`) imports anything but numpy. Options: `--with-results` (committed results),
 `--with-tests` (tests, need pytest), `--draft` (no report, for a dry run), `--out <zip>`.
 
 ## Layout

@@ -11,7 +11,8 @@
 Only files tracked by git are packed, so local files (caches, venv, IDE settings, exploratory
 scripts, old results) never end up in the delivery. Before writing the ZIP it checks that
 requirements.txt only lists the allowed packages and that every packed Python file only imports
-the standard library, those packages or our own modules.
+the standard library, those packages or our own modules; scikit-learn only in the SVM, RF and
+preprocessing, and nothing but numpy in the kNN and reduction (src/models/knn/).
 
 Usage (from the project root):
     python scripts/make_submission.py --report path/to/report.pdf
@@ -50,6 +51,12 @@ ALLOWED_PACKAGES = {
 ALLOWED_IMPORTS = {"arff_loader", "numpy", "scipy", "pandas", "sklearn", "matplotlib", "seaborn"}
 # Development tools that only the tests may import (not in requirements.txt).
 TEST_ONLY_IMPORTS = {"pytest"}
+# The assignment allows scikit-learn only for some parts: SVM, RF and the preprocessing (the
+# professor confirmed the preprocessing in writing). Tests may use it as a reference.
+SKLEARN_ALLOWED_IN = {"src/models/svm.py", "src/models/random_forest.py", "src/preprocessing.py"}
+# The kNN and the instance reduction are our own code: only the standard library and numpy.
+OWN_CODE_DIR = "src/models/knn/"
+OWN_CODE_THIRD_PARTY = {"numpy"}
 
 
 def tracked_files(entry: str) -> list[Path]:
@@ -94,6 +101,20 @@ def local_modules(files: list[Path]) -> set[str]:
     return names
 
 
+def import_problem(path: Path, top: str, allowed: set[str]) -> str | None:
+    """Why importing ``top`` in ``path`` is not allowed, or None if it is."""
+    posix = path.as_posix()
+    in_tests = path.parts[0] == "tests"
+    if top not in allowed and not (in_tests and top in TEST_ONLY_IMPORTS):
+        return "package not allowed"
+    if top == "sklearn" and not in_tests and posix not in SKLEARN_ALLOWED_IN:
+        return "scikit-learn is only allowed for SVM, RF and preprocessing"
+    third_party = top in ALLOWED_IMPORTS
+    if posix.startswith(OWN_CODE_DIR) and third_party and top not in OWN_CODE_THIRD_PARTY:
+        return "the kNN and the reduction must be our own code (numpy only)"
+    return None
+
+
 def bad_imports(files: list[Path]) -> list[str]:
     """``file: module`` for every import outside the stdlib, the allowed packages and our code."""
     allowed = set(sys.stdlib_module_names) | ALLOWED_IMPORTS | local_modules(files)
@@ -115,9 +136,9 @@ def bad_imports(files: list[Path]) -> list[str]:
                 continue
             for module in modules:
                 top = module.split(".")[0]
-                if top in allowed or (path.parts[0] == "tests" and top in TEST_ONLY_IMPORTS):
-                    continue
-                problems.append(f"{path}: {module}")
+                problem = import_problem(path, top, allowed)
+                if problem:
+                    problems.append(f"{path}: {module} ({problem})")
     return problems
 
 
