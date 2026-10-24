@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from time import perf_counter
+
 import numpy as np
 
 from experiment_runner import ClassificationResult
@@ -28,12 +32,44 @@ class MajorityBaseline(BaseClassifier):
         train = self.reduce_train(train)
         return train, test
 
+    def fit(self, train: Preprocessed) -> MajorityBaseline:
+        train = self.reduce_train(train)
+        t0 = perf_counter()
+        self.majority_class_ = int(np.bincount(train.y_codes).argmax())
+        self.storage_ = len(train.y)
+        self.fit_time = perf_counter() - t0
+        return self
+
+    def predict(self, test: Preprocessed) -> ClassificationResult:
+        if getattr(self, "majority_class_", None) is None:
+            raise RuntimeError("Model is not fitted yet. Call fit() first.")
+        t0 = perf_counter()
+        predictions = [self.majority_class_] * len(test.y_codes)
+        self.predict_time = perf_counter() - t0
+        return ClassificationResult(
+            predictions=predictions,
+            storage=self.storage_,
+            reduction_time=self.reduction_time,
+            reduction_wall_time=self.reduction_wall_time,
+            fit_time=self.fit_time,
+            predict_time=self.predict_time,
+        )
+
     def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
         train, test = self.prepare_data(train, test)
+        t_fit = perf_counter()
         majority_class = int(np.bincount(train.y_codes).argmax())
+        self.fit_time = perf_counter() - t_fit
+
+        t_pred = perf_counter()
+        predictions = [majority_class] * len(test.y_codes)
+        self.predict_time = perf_counter() - t_pred
+
         return ClassificationResult(
-            predictions=[majority_class] * len(test.y_codes),
+            predictions=predictions,
             storage=len(train.y),
             reduction_time=self.reduction_time,
             reduction_wall_time=self.reduction_wall_time,
+            fit_time=self.fit_time,
+            predict_time=self.predict_time,
         )

@@ -1,4 +1,4 @@
-"""Instance reduction techniques: FCNN, EENTh, DROP, and DEL."""
+"""Instance reduction techniques: FCNN, ENNTH, DROP, and DEL."""
 
 from __future__ import annotations
 
@@ -229,11 +229,11 @@ def fcnn(
 
 
 # ---------------------------------------------------------------------------
-# Extended Edited Nearest Neighbors with Threshold (EENTh)
+# Edited Nearest Neighbors with Threshold (ENNTH)
 # ---------------------------------------------------------------------------
 
 
-def eenth(
+def ennth(
     train: Preprocessed,
     k: int = 3,
     threshold: float = 0.0,
@@ -306,6 +306,9 @@ def eenth(
         retained_indices = np.unique(fallback)
 
     return _wrap_result(train, retained_indices)
+
+
+ENNTH = ennth
 
 
 # ---------------------------------------------------------------------------
@@ -865,14 +868,14 @@ class DROPReduction(InstanceReduction):
         )
 
 
-class EENThReduction(InstanceReduction):
-    """Extended Edited Nearest Neighbors with Threshold (EENTh)."""
+class ENNTHReduction(InstanceReduction):
+    """Edited Nearest Neighbors with Threshold (ENNTH)."""
 
-    method = "eenth"
+    method = "ennth"
 
     def __init__(
         self,
-        params_or_method: dict[str, Any] | str = "eenth",
+        params_or_method: dict[str, Any] | str = "ennth",
         *,
         threshold: float = 0.0,
         distance: str | DistanceFunction = "euclidean",
@@ -882,10 +885,10 @@ class EENThReduction(InstanceReduction):
     ) -> None:
         if isinstance(params_or_method, dict):
             params = params_or_method
-            params["reduction"] = "eenth"
+            params["reduction"] = "ennth"
             if "version" in params:
                 raise ValueError(
-                    "Unknown parameter 'version' for EENTh (EENTh only accepts 'threshold')"
+                    "Unknown parameter 'version' for ENNTH (ENNTH only accepts 'threshold')"
                 )
             raw_th = params.get("threshold", 0.0)
             try:
@@ -907,7 +910,7 @@ class EENThReduction(InstanceReduction):
         else:
             if "version" in kwargs:
                 raise ValueError(
-                    "Unknown parameter 'version' for EENTh (EENTh only accepts 'threshold')"
+                    "Unknown parameter 'version' for ENNTH (ENNTH only accepts 'threshold')"
                 )
             th = float(threshold)
             if th < 0.0:
@@ -922,7 +925,7 @@ class EENThReduction(InstanceReduction):
         train: Preprocessed,
         distance_matrix: np.ndarray | None = None,
     ) -> ReductionResult:
-        return eenth(
+        return ennth(
             train,
             distance=self.distance,
             voting=self.voting,
@@ -1107,7 +1110,7 @@ def parse_reduction_params(params: dict[str, Any], is_knn: bool = False) -> Inst
         params["reduction_k"] = red_k
         if method in ("fcnn", "drop"):
             params["version"] = getattr(reduction_instance, "version", 1)
-        elif method == "eenth":
+        elif method == "ennth":
             params["threshold"] = getattr(reduction_instance, "threshold", 0.0)
 
     return reduction_instance
@@ -1134,18 +1137,18 @@ REDUCTION_CLASSES: dict[str, type[InstanceReduction]] = {
     "none": NoReduction,
     "fcnn": FCNNReduction,
     "drop": DROPReduction,
-    "eenth": EENThReduction,
+    "ennth": ENNTHReduction,
     "del": DELReduction,
 }
 
 REDUCTION_TECHNIQUES: dict[str, Callable[..., ReductionResult]] = {
     "fcnn": fcnn,
-    "eenth": eenth,
+    "ennth": ennth,
     "drop": drop,
     "del": del_reduction,
 }
 
-VALID_REDUCTIONS = {"none", "fcnn", "eenth", "drop", "del"}
+VALID_REDUCTIONS = {"none", "fcnn", "ennth", "drop", "del"}
 
 
 # ---------------------------------------------------------------------------
@@ -1217,7 +1220,7 @@ def reduction_kNNAlgorithm(
     """kNN on a reduced training set: reduce ``train``, then run ``kNNAlgorithm``.
 
     Named as the assignment requires (``reduction_kNNAlgorithm(...)``). The reduction uses the
-    same k, distance and voting as the kNN; ``reduction`` is ``"fcnn"``, ``"eenth"``, ``"drop"``
+    same k, distance and voting as the kNN; ``reduction`` is ``"fcnn"``, ``"ennth"``, ``"drop"``
     or ``"del"`` and ``reduction_params`` its options (``version``, ``threshold``).
     """
     distance = resolve_distance(distance_function)

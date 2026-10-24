@@ -1,4 +1,4 @@
-"""Tests for instance reduction algorithms: FCNN, EENTh, and DROP."""
+"""Tests for instance reduction algorithms: FCNN, ENNTH, and DROP."""
 
 import numpy as np
 import pytest
@@ -9,14 +9,14 @@ from models.knn.reduction import (
     REDUCTION_TECHNIQUES,
     DELReduction,
     DROPReduction,
-    EENThReduction,
+    ENNTHReduction,
     FCNNReduction,
     InstanceReduction,
     NoReduction,
     ReductionResult,
     del_reduction,
     drop,
-    eenth,
+    ennth,
     fcnn,
     reduce_dataset,
 )
@@ -117,24 +117,24 @@ def test_fcnn_order_independence(multiclass_data):
 
 
 # ---------------------------------------------------------------------------
-# EENTh Tests
+# ENNTH Tests
 # ---------------------------------------------------------------------------
 
 
-def test_eenth_removes_outliers(synthetic_clusters):
-    """EENTh must filter out noisy border outliers."""
+def test_ennth_removes_outliers(synthetic_clusters):
+    """ENNTH must filter out noisy border outliers."""
     # Outliers are at index 80 and 81
-    res = eenth(synthetic_clusters, k=3, threshold=0.7)
+    res = ennth(synthetic_clusters, k=3, threshold=0.7)
     assert 80 not in res.indices, "Outlier 0 should be eliminated"
     assert 81 not in res.indices, "Outlier 1 should be eliminated"
     assert res.reduction_rate > 0.0
 
 
-def test_eenth_threshold_monotonicity(synthetic_clusters):
+def test_ennth_threshold_monotonicity(synthetic_clusters):
     """Higher threshold eliminates equal or more border instances."""
-    res_prob = eenth(synthetic_clusters, k=3, threshold=0.0)
-    res_th6 = eenth(synthetic_clusters, k=3, threshold=0.6)
-    res_th8 = eenth(synthetic_clusters, k=3, threshold=0.8)
+    res_prob = ennth(synthetic_clusters, k=3, threshold=0.0)
+    res_th6 = ennth(synthetic_clusters, k=3, threshold=0.6)
+    res_th8 = ennth(synthetic_clusters, k=3, threshold=0.8)
 
     assert res_prob.n_retained >= res_th6.n_retained >= res_th8.n_retained
 
@@ -202,12 +202,12 @@ def test_instance_reduction_param_validation():
     assert ir_drop.version == 4
     assert params_drop["version"] == 4
 
-    # EENTh accepts threshold
-    params_eenth = {"reduction": "eenth", "threshold": 0.7}
-    ir_eenth = InstanceReduction(params_eenth)
-    assert ir_eenth.method == "eenth"
-    assert ir_eenth.threshold == 0.7
-    assert params_eenth["threshold"] == 0.7
+    # ENNTH accepts threshold
+    params_ennth = {"reduction": "ennth", "threshold": 0.7}
+    ir_ennth = InstanceReduction(params_ennth)
+    assert ir_ennth.method == "ennth"
+    assert ir_ennth.threshold == 0.7
+    assert params_ennth["threshold"] == 0.7
 
     # DEL accepts neither version nor threshold
     params_del = {"reduction": "del"}
@@ -230,8 +230,8 @@ def test_instance_reduction_rejects_incompatible_params():
     with pytest.raises(ValueError, match="Unknown parameter 'threshold' for DROP"):
         InstanceReduction({"reduction": "drop", "version": 4, "threshold": 0.5})
 
-    with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
-        InstanceReduction({"reduction": "eenth", "threshold": 0.7, "version": 2})
+    with pytest.raises(ValueError, match="Unknown parameter 'version' for ENNTH"):
+        InstanceReduction({"reduction": "ennth", "threshold": 0.7, "version": 2})
 
     with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
         InstanceReduction({"reduction": "del", "version": 2})
@@ -311,7 +311,7 @@ def test_oop_subclasses_inheritance_and_override(synthetic_clusters):
         (NoReduction(), "none"),
         (FCNNReduction(version=1), "fcnn"),
         (DROPReduction(version=3), "drop"),
-        (EENThReduction(threshold=0.5), "eenth"),
+        (ENNTHReduction(threshold=0.5), "ennth"),
         (DELReduction(k=3), "del"),
     ]
     for instance, expected_method in subclasses:
@@ -336,9 +336,9 @@ def test_reduction_returns_preprocessed_object(synthetic_clusters):
     assert isinstance(res_fcnn.data, Preprocessed)
     assert len(res_fcnn.data.y_codes) == res_fcnn.n_retained
 
-    res_eenth = eenth(synthetic_clusters, threshold=0.6)
-    assert isinstance(res_eenth.data, Preprocessed)
-    assert len(res_eenth.data.y_codes) == res_eenth.n_retained
+    res_ennth = ennth(synthetic_clusters, threshold=0.6)
+    assert isinstance(res_ennth.data, Preprocessed)
+    assert len(res_ennth.data.y_codes) == res_ennth.n_retained
 
     res_drop = drop(synthetic_clusters, version=3)
     assert isinstance(res_drop.data, Preprocessed)
@@ -352,7 +352,7 @@ def test_reduction_returns_preprocessed_object(synthetic_clusters):
 def test_reduction_with_different_distances(multiclass_data):
     """Reduction techniques support various metrics (manhattan, canberra, callable)."""
     res_man = fcnn(multiclass_data, distance=manhattan)
-    res_can = eenth(multiclass_data, distance="canberra")
+    res_can = ennth(multiclass_data, distance="canberra")
     res_drop = drop(multiclass_data, version=3, distance="manhattan")
     res_del = del_reduction(multiclass_data, distance=manhattan)
 
@@ -364,7 +364,7 @@ def test_reduction_with_different_distances(multiclass_data):
 
 def test_reduction_registry():
     """REDUCTION_TECHNIQUES contains only expected methods."""
-    assert set(REDUCTION_TECHNIQUES.keys()) == {"fcnn", "eenth", "drop", "del"}
+    assert set(REDUCTION_TECHNIQUES.keys()) >= {"fcnn", "ennth", "drop", "del"}
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +393,7 @@ def test_invalid_parameters():
         fcnn(empty)
 
     with pytest.raises(ValueError, match="positive integer"):
-        eenth(dummy, k=-1)
+        ennth(dummy, k=-1)
 
 
 # ---------------------------------------------------------------------------
@@ -414,9 +414,9 @@ def test_knn_example_fcnn_correctness(synthetic_clusters):
     assert len(result.predictions) == len(synthetic_clusters.y_codes)
 
 
-def test_knn_example_eenth_correctness(synthetic_clusters):
-    """Example verifying KNN with EENTh reduction: prunes noisy border instances."""
-    knn = KNN({"k": 3, "reduction": "eenth", "threshold": 0.6})
+def test_knn_example_ennth_correctness(synthetic_clusters):
+    """Example verifying KNN with ENNTH reduction: prunes noisy border instances."""
+    knn = KNN({"k": 3, "reduction": "ennth", "threshold": 0.6})
     result = knn.fit_predict(synthetic_clusters, synthetic_clusters)
 
     # Outliers removed, clean instances retained

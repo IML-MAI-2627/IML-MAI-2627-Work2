@@ -1,0 +1,210 @@
+{
+  "splice": {
+    "knn": {
+      "model": "knn",
+      "params": {
+        "distance": "clark",
+        "k": "7",
+        "reduction": "none",
+        "retention": "oblivion_by_goodness",
+        "voting": "inverse_distance"
+      },
+      "accuracy": 0.8438924461354234
+    },
+    "svm": {
+      "model": "svm",
+      "params": {
+        "C": "0.1",
+        "class_weight": "balanced",
+        "coef0": "0.5",
+        "degree": "5",
+        "gamma": "scale",
+        "kernel": "poly",
+        "max_iter": "-1",
+        "random_state": "42",
+        "tol": "0.001"
+      },
+      "accuracy": 0.9689834127922505
+    },
+    "rf": {
+      "model": "rf",
+      "params": {
+        "criterion": "entropy",
+        "max_depth": "None",
+        "max_features": "sqrt",
+        "min_samples_leaf": "2",
+        "n_estimators": "200",
+        "n_jobs": "1",
+        "random_state": "42"
+      },
+      "accuracy": 0.9689775533053325
+    },
+    "best_reduction": "fcnn",
+    "reduction_champions": {
+      "fcnn": {
+        "version": "2"
+      },
+      "ennth": {
+        "threshold": "0.0"
+      },
+      "drop": {
+        "version": "3"
+      },
+      "del": {}
+    },
+    "knn_reduced": {
+      "model": "knn",
+      "params": {
+        "distance": "clark",
+        "k": "7",
+        "reduction": "fcnn",
+        "retention": "oblivion_by_goodness",
+        "version": "2",
+        "voting": "inverse_distance"
+      },
+      "accuracy": 0.8467698788010287
+    },
+    "svm_reduced": {
+      "model": "svm",
+      "params": {
+        "C": "0.1",
+        "class_weight": "balanced",
+        "coef0": "0.5",
+        "degree": "5",
+        "gamma": "scale",
+        "kernel": "poly",
+        "max_iter": "-1",
+        "random_state": "42",
+        "reduction": "fcnn",
+        "reduction_distance": "clark",
+        "reduction_k": "7",
+        "reduction_voting": "inverse_distance",
+        "tol": "0.001",
+        "version": "2"
+      },
+      "accuracy": 0.9595740086077746
+    },
+    "rf_reduced": {
+      "model": "rf",
+      "params": {
+        "criterion": "entropy",
+        "max_depth": "None",
+        "max_features": "sqrt",
+        "min_samples_leaf": "2",
+        "n_estimators": "200",
+        "n_jobs": "1",
+        "random_state": "42",
+        "reduction": "fcnn",
+        "reduction_distance": "clark",
+        "reduction_k": "7",
+        "reduction_voting": "inverse_distance",
+        "version": "2"
+      },
+      "accuracy": 0.952030836869984
+    }
+  },
+  "vowel": {
+    "knn": {
+      "model": "knn",
+      "params": {
+        "distance": "euclidean",
+        "k": "3",
+        "reduction": "none",
+        "retention": "always",
+        "voting": "inverse_distance"
+      },
+      "accuracy": 0.9787878787878788
+    },
+    "svm": {
+      "model": "svm",
+      "params": {
+        "C": "1.0",
+        "class_weight": "None",
+        "coef0": "-0.5",
+        "degree": "5",
+        "gamma": "scale",
+        "kernel": "poly",
+        "max_iter": "-1",
+        "random_state": "42",
+        "tol": "0.001"
+      },
+      "accuracy": 0.9909090909090909
+    },
+    "rf": {
+      "model": "rf",
+      "params": {
+        "criterion": "entropy",
+        "max_depth": "20",
+        "max_features": "sqrt",
+        "min_samples_leaf": "1",
+        "n_estimators": "200",
+        "n_jobs": "1",
+        "random_state": "42"
+      },
+      "accuracy": 0.9797979797979798
+    },
+    "best_reduction": "ennth",
+    "reduction_champions": {
+      "fcnn": {
+        "version": "2"
+      },
+      "ennth": {
+        "threshold": "0.0"
+      },
+      "drop": {
+        "version": "3"
+      },
+      "del": {}
+    },
+    "knn_reduced": {
+      "model": "knn",
+      "params": {
+        "distance": "euclidean",
+        "k": "3",
+        "reduction": "ennth",
+        "retention": "always",
+        "threshold": "0.0",
+        "voting": "inverse_distance"
+      },
+      "accuracy": 0.9515151515151515
+    },
+    "svm_reduced": {
+      "model": "svm",
+      "params": {
+        "C": "1.0",
+        "class_weight": "None",
+        "coef0": "-0.5",
+        "degree": "5",
+        "gamma": "scale",
+        "kernel": "poly",
+        "max_iter": "-1",
+        "random_state": "42",
+        "reduction": "ennth",
+        "reduction_distance": "euclidean",
+        "reduction_k": "3",
+        "reduction_voting": "inverse_distance",
+        "threshold": "0.0",
+        "tol": "0.001"
+      },
+      "accuracy": 0.9696969696969697
+    },
+    "rf_reduced": {
+      "model": "rf",
+      "params": {
+        "criterion": "entropy",
+        "max_depth": "20",
+        "max_features": "sqrt",
+        "min_samples_leaf": "1",
+        "n_estimators": "200",
+        "n_jobs": "1",
+        "random_state": "42",
+        "reduction": "ennth",
+        "reduction_distance": "euclidean",
+        "reduction_k": "3",
+        "reduction_voting": "inverse_distance",
+        "threshold": "0.0"
+      },
+      "accuracy": 0.9535353535353535
+    }
+  }
+}

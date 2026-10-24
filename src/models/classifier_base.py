@@ -19,6 +19,9 @@ class BaseClassifier(ABC):
     # Folder where reduced training sets are stored and reused (None: no cache). Set it on the
     # instance, e.g. ``model.reduction_cache_dir = Path("results/gridsearch_v2/reduction_cache")``.
     reduction_cache_dir: Path | None = None
+    # Training (fit) time and inference (predict) time in seconds.
+    fit_time: float = 0.0
+    predict_time: float = 0.0
 
     def __init__(self, params: dict[str, object]):
         self.params = params
@@ -46,6 +49,16 @@ class BaseClassifier(ABC):
             reducer, train, self.reduction_cache_dir
         )
         return train
+
+    @abstractmethod
+    def fit(self, train: Preprocessed) -> Any:
+        """Fit the model on the preprocessed training set."""
+        pass
+
+    @abstractmethod
+    def predict(self, test: Preprocessed) -> ClassificationResult:
+        """Predict labels on the preprocessed test set."""
+        pass
 
     @abstractmethod
     def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
