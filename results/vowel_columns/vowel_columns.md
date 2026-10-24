@@ -1,6 +1,6 @@
 # vowel: which columns to keep
 
-Best vowel kNN of grid v2: `{'distance': 'heom', 'k': '3', 'reduction': 'none', 'retention': 'always', 'voting': 'inverse_distance'}`. Only the dropped columns change.
+Best vowel kNN of the grid search: `{'distance': 'euclidean', 'k': '3', 'reduction': 'none', 'retention': 'always', 'voting': 'inverse_distance'}`. Only the dropped columns change.
 
 | Variant | Mean accuracy | Std | Mean rank | Storage (%) |
 |---|---|---|---|---|

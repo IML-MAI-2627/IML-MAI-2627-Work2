@@ -1,4 +1,4 @@
-"""Leave-one-fold-out estimate of the selection bias of grid v2 (double dipping).
+"""Leave-one-fold-out estimate of the selection bias of the grid search (double dipping).
 
 The grid picks the configuration with the best mean accuracy over the 10 folds and reports that
 same mean, so the choice and the score use the same folds. For each fold f this script picks the
@@ -22,7 +22,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import config  # noqa: E402
-from experiments.grid_search_v2 import base_rows, load_dataset, summarize  # noqa: E402
+from experiments.grid_search import base_rows, load_dataset, summarize  # noqa: E402
 
 MODELS = {"knn": "kNN", "svm": "SVM", "rf": "RF"}
 
@@ -82,7 +82,7 @@ def markdown(table: pd.DataFrame) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--results", type=Path, default=config.RESULTS_DIR / "gridsearch_v2")
+    parser.add_argument("--results", type=Path, default=config.RESULTS_DIR / "gridsearch")
     parser.add_argument("--out", type=Path, default=config.RESULTS_DIR / "selection_bias")
     args = parser.parse_args(argv)
 

@@ -91,8 +91,8 @@ Status: **decided** / **pending**.
 - **`Sex` is kept.** It has a physical meaning (voice frequency) and only 2 values. (decided)
 - The drop list is configurable (`Preprocessor(drop=...)`, defaults in `DEFAULT_DROP`). An unknown
   column name raises `ValueError`, so a typo is not silently ignored.
-- **Checked with the best vowel kNN of grid v2** (`python experiments/vowel_columns.py`, output in
-  `results/vowel_columns/`): (A) 10 numeric, (B) A + `Sex` (current), (C) B + `Speaker_Number`. Only the drop list
+- **Checked with the best vowel kNN of the grid search** (euclidean, k=3, inverse_distance, always;
+  `python experiments/vowel_columns.py`, output in `results/vowel_columns/`): (A) 10 numeric, (B) A + `Sex` (current), (C) B + `Speaker_Number`. Only the drop list
   changes. All three give a mean accuracy of 0.9788 over the 10 folds (Friedman + Iman-Davenport p = 1; every
   pairwise Wilcoxon p = 1 after Holm). The column choice makes no difference, so the current choice (B) stays.
   (decided)
@@ -438,7 +438,7 @@ Status: **decided** / **pending**.
   - `distances.py`: Own distance metric implementations (`euclidean`, `manhattan`, `canberra`, `clark`, `heom`) in pure NumPy with symmetric optimization.
   - `voting.py`: Voting strategies (`majority`, `inverse_distance`).
   - `retention.py`: Dynamic test-time retention policies (`never`, `always`, `different_class`, `oblivion_by_goodness`).
-  - `reduction.py`: Training set instance reduction algorithms (`fcnn`, `drop`, `eenth`) with object-oriented validation (`InstanceReduction`).
+  - `reduction.py`: Training set instance reduction algorithms (`fcnn`, `drop`, `ennth`) with object-oriented validation (`InstanceReduction`).
     - *Why:* Eliminates code duplication, avoids circular dependencies, and provides a single, unified execution path (`run_kNN`) for batch and retention classification, maximizing code reuse across kNN, reduction, and retention. (decided)
 - **Single unified execution engine: `run_kNN()`.**
   Replaces separate algorithm runners. When `retention_function is None`, `run_kNN()` executes the fast batch path using vectorized NumPy broadcasting and stable sorting. When a retention policy is active, it delegates directly to `_run_with_retention()` to sequentially classify and update the case base.
@@ -474,7 +474,7 @@ Status: **decided** / **pending**.
       memory peak made parallel runs on splice impossible. (decided, replaces the triu version)
 - **Reconstruction and retention of the full $(N, N)$ symmetric 2D matrix.**
   `compute_distance_matrix` returns the full $(N, N)$ NumPy matrix with exact zeros on the diagonal.
-    - *Why:* All neighbor queries in FCNN (nearest enemy search), DROP (associates search and sorting), EENTh (consensus checking), and retention (candidate filtering) rely on **$O(1)$ vectorized row slicing** (`D[p, :]` and `D[p, candidates]`). Storing a condensed 1D distance array would require complex index arithmetic and prevent NumPy's optimized C-level row slicing, drastically slowing down neighbor lookups in Python. The full 2D float64 matrix takes minimal storage (~8 MB for $N=1000$), so keeping the 2D matrix is optimal. (decided)
+    - *Why:* All neighbor queries in FCNN (nearest enemy search), DROP (associates search and sorting), ENNTH (consensus checking), and retention (candidate filtering) rely on **$O(1)$ vectorized row slicing** (`D[p, :]` and `D[p, candidates]`). Storing a condensed 1D distance array would require complex index arithmetic and prevent NumPy's optimized C-level row slicing, drastically slowing down neighbor lookups in Python. The full 2D float64 matrix takes minimal storage (~8 MB for $N=1000$), so keeping the 2D matrix is optimal. (decided)
 - **Five registered distance metrics (`DISTANCES`):**
   - `euclidean`: Minkowski $r=2$ with nominal overlap on one-hot representation.
   - `manhattan`: Minkowski $r=1$ with nominal overlap on one-hot representation.
@@ -541,8 +541,8 @@ Status: **decided** / **pending**.
     - Governed by `--version`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN pre-filtering), `4` (DROP4), `5` (DROP5).
     - In DROP1, removed points are discarded from neighbor lists of associates so risk evaluations never reference pruned instances.
     - *Why:* Associate-based risk checks prevent cascading classification errors; DROP3's initial ENN pass eliminates noisy border instances before pruning internal prototypes. (decided)
-  - **ENNTh (Edited Nearest Neighbor estimating class probabilities and Threshold; Vázquez, Sánchez & Pla 2005,
-    "WilsonTh"; called `eenth` in the code):** for each instance, its $k$ nearest neighbours (itself excluded) give
+  - **ENNTH (Edited Nearest Neighbor estimating class probabilities and Threshold; Vázquez, Sánchez & Pla 2005,
+    "WilsonTh"; called `ennth` in the code):** for each instance, its $k$ nearest neighbours (itself excluded) give
     class probabilities $P_i(x) = \sum_j p_i^j / (1 + d(x, x_j))$, normalised to sum 1. The instance is removed if the
     most probable class is not its label, **or** if that maximum probability is $\le$ `--threshold` $\mu$
     (default 0.0, which is the paper's WilsonProb). Checked against the paper (Section 3).
@@ -575,7 +575,7 @@ Status: **decided** / **pending**.
   - `NoReduction` (method `"none"`): identity wrapper.
   - `FCNNReduction` (method `"fcnn"`): handles version 1..4.
   - `DROPReduction` (method `"drop"`): handles version 1..5.
-  - `EENThReduction` (method `"eenth"`): handles threshold $\ge 0.0$.
+  - `ENNTHReduction` (method `"ennth"`): handles threshold $\ge 0.0$.
   - `DELReduction` (method `"del"`): handles encoding length reduction.
   - `InstanceReduction.__new__` serves as a polymorphic factory so that `InstanceReduction(params)` or `InstanceReduction("del", k=3)` transparently returns the specialized subclass instance satisfying `isinstance(obj, InstanceReduction)`.
   - Each subclass overrides `reduce(train, distance_matrix=None)` and validates/prunes its specific hyperparameters. (decided)
@@ -597,7 +597,7 @@ Status: **decided** / **pending**.
 - **Strict, fail-fast hyperparameter validation.**
   `KNN.parse_params`, `SVM.parse_params`, `RandomForest.parse_params`, and `InstanceReduction` validate all configuration parameters upfront:
   - Unknown parameters raise `ValueError: Unknown <Model> parameters provided: [...]`.
-  - Incompatible reduction parameters raise immediate `ValueError`: passing `version` to EENTh, passing `threshold` to FCNN or DROP, or passing either when reduction is `"none"`.
+  - Incompatible reduction parameters raise immediate `ValueError`: passing `version` to ENNTH, passing `threshold` to FCNN or DROP, or passing either when reduction is `"none"`.
   - **Passing reduction parameters without specifying `--reduction` raises `ValueError`:**
     If any reduction parameter (`reduction_k`, `reduction_distance`, `reduction_voting`, `version`, `threshold`, `distance`, `voting`) is passed when `--reduction` is omitted, execution halts immediately with `ValueError` stating that `--reduction` must be specified, instead of silently dropping the parameter or ignoring user intent.
   - Incompatible parameters passed to `MajorityBaseline` also raise `ValueError`.
@@ -607,7 +607,7 @@ Status: **decided** / **pending**.
     stratified and always contain every class, so the grid is not affected.
     - *Why:* Prevents configuration errors and typos from being silently ignored or causing silent misbehavior during long multi-fold runs. (decided)
 - **Default parameter injection and CSV synchronization.**
-  Default values are injected for omitted parameters (`k=3`, `distance="euclidean"`, `voting="majority"`, `retention="never"`, `reduction="none"`). Active reduction parameters (`version` for FCNN/DROP, `threshold` for EENTh, `reduction_k` for non-kNN models) are synchronized into `self.params` and serialized in the CSV results table. (decided)
+  Default values are injected for omitted parameters (`k=3`, `distance="euclidean"`, `voting="majority"`, `retention="never"`, `reduction="none"`). Active reduction parameters (`version` for FCNN/DROP, `threshold` for ENNTH, `reduction_k` for non-kNN models) are synchronized into `self.params` and serialized in the CSV results table. (decided)
 
 ### Contracts for strategies
 
@@ -647,7 +647,7 @@ Status: **decided** / **pending**.
   nearest neighbours, and with retention the case base evolves in the same way. (note)
 - **With inverse distance they can differ**, because the weights 1/d differ between the two groups
   {euclidean, heom} (proportional distances, same vote) and {manhattan, canberra, clark} (equal
-  distances). In grid v2 (`results/gridsearch_v2/splice/base/knn/`, grouping the 120 configurations
+  distances). In the grid search (`results/gridsearch/splice/base/knn/`, grouping the 120 configurations
   by k, voting, retention and fold) the confusion matrices of the five metrics are identical in all
   120 majority cases and in 116 of the 120 inverse-distance cases, so 236 of 240 overall. The 4
   exceptions are k=5, inverse distance, fold 9 (every retention policy), where the two groups differ
@@ -773,15 +773,23 @@ Status: **decided** / **pending**.
 
 ### Best kNN (issue #15, grid search v1)
 
-- **This is the v1 result. The report uses grid search v2** (120 configurations, selection rule: highest mean
-  accuracy, ties -> lower time; see *Grid search v2*). Official v2 winners (`results/gridsearch_v2/winners.json`):
-    - **splice:** euclidean, k=7, inverse_distance, oblivion_by_goodness, accuracy 0.8439 (same configuration as v1).
-    - **vowel:** heom, k=3, inverse_distance, always, accuracy 0.9788.
-    - On vowel, **never retain (NR) is statistically equivalent to always retain (AR) and cheaper**: the best
+- **This is the v1 result. The report uses the official grid search** (`experiments/grid_search.py`, 120 kNN
+  configurations, selection rule: highest mean accuracy, ties -> lower time -> name; see *Grid search v2*).
+  Official winners (`results/gridsearch/winners.json`, re-run of commit 5e93e66):
+    - **splice kNN:** clark, k=7, inverse_distance, oblivion_by_goodness, accuracy 0.8439. The five distances tie
+      (same accuracy); clark wins on the time tie-break.
+    - **vowel kNN:** euclidean, k=3, inverse_distance, always, accuracy 0.9788 (tied with manhattan and heom).
+    - **SVM:** poly, degree 5, gamma scale; C=0.1, coef0=0.5, balanced on splice (0.9690); C=1.0, coef0=-0.5,
+      no class weight on vowel (0.9909).
+    - **RF:** entropy, 200 trees, max_features sqrt; no depth limit, min_samples_leaf 2 on splice (0.9690);
+      max_depth 20, min_samples_leaf 1 on vowel (0.9798).
+    - **Reduction:** champion variants FCNN v2, ENNTh threshold 0.0, DROP3 and DEL on both datasets; the best
+      reduced kNN uses FCNN on splice and ENNTh on vowel.
+    - On vowel, **never retain (NR) is not significantly worse than always retain (AR) and cheaper**: the best
       configuration of each retention policy cannot be told apart (Friedman + Iman-Davenport p = 0.954,
-      `results/gridsearch_v2/vowel/tests.csv`, "kNN retention best"). The best NR (heom, k=3, inverse_distance)
+      `results/gridsearch/vowel/tests.csv`, "kNN retention best"). The best NR (euclidean, k=3, inverse_distance)
       reaches 0.9758 vs 0.9788, keeps the case base at 100% of the training set instead of 111%, and solves a fold
-      in 0.0124 s vs 0.0144 s. The report presents AR as the winner by the rule and NR as the cheaper equivalent.
+      in 0.0052 s vs 0.0059 s. The report presents AR as the winner by the rule and NR as the cheaper alternative.
 - Everything below is kept as the record of the v1 run.
 - **Grid: 96 configurations** = k {3, 5, 7} x distance {euclidean, manhattan, canberra, heom}
   x voting {majority, inverse_distance} x retention {never, always, different_class,
@@ -805,7 +813,7 @@ Status: **decided** / **pending**.
 
 ---
 
-## Grid search v2 (`experiments/grid_search_v2.py`)
+## Grid search v2 (`../experiments/grid_search.py`)
 
 One script runs every experiment of the assignment, with and without instance reduction, and answers each
 question of Section 1.3 with a pre-defined test. It replaces `experiments/grid_search.py` (v1, removed).
@@ -825,7 +833,7 @@ question of Section 1.3 with a pre-defined test. It replaces `experiments/grid_s
   RF with `n_jobs=1`, like our kNN. `--jobs N` is fine to get accuracies fast, but then do not use the times.
 - **Reproducible and resumable:** seed reset per configuration (`run_experiment`), one CSV per configuration
   written atomically (temp file + rename), existing CSVs are skipped.
-- **Reduction cache** (`results/gridsearch_v2/reduction_cache/`, `reduce_with_cache` in `reduction.py`): the
+- **Reduction cache** (`results/gridsearch/reduction_cache/`, `reduce_with_cache` in `reduction.py`): the
   reduced set depends only on the technique, its variant, K, distance, voting and the training fold, never on the
   model trained on it or on the kNN retention. Phase 3 reuses the four reductions of the best kNN for SVM and RF
   (on splice ~35 s per fold each time, DROP3 and DEL dominate). The key is a hash of those settings and of the
@@ -834,7 +842,7 @@ question of Section 1.3 with a pre-defined test. It replaces `experiments/grid_s
       `time` is charged with it (`run_fold` adds the difference), so the CSVs mean the same with or without the
       cache. Delete the folder to force recomputation. (decided)
     - *No global state:* the folder is an explicit attribute of each classifier (`reduction_cache_dir`, default
-      `None` = no cache), set by `grid_search_v2.py` when it creates the classifier; `reduce_with_cache` receives it
+      `None` = no cache), set by `grid_search.py` when it creates the classifier; `reduce_with_cache` receives it
       as an argument. (decided)
 - **In-process execution** (`run_experiment` directly, optional process pool) instead of one subprocess per
   configuration as in v1: each process parses and preprocesses every fold once (`load_fold` cache).
@@ -846,13 +854,13 @@ question of Section 1.3 with a pre-defined test. It replaces `experiments/grid_s
 | Phase | What runs | Size |
 |---|---|---|
 | 1. base | kNN full grid: K {3,5,7} x 5 distances x 2 votes x 4 retentions; SVM grid (C, kernel linear/rbf/poly, gamma, class_weight, coef0/degree for poly); RF grid (n_estimators {50..300}, gini/entropy, max_depth, max_features, min_samples_leaf) | 120 + 168 + 96 |
-| 2. kNN reduction | every reduction variant on the **top-`--reduce-top` kNN** (default 3): FCNN v1/v2 (condensed), EENTh threshold 0/0.5/0.7 (edited), DROP3 and DEL (hybrids) | 7 x 3 |
+| 2. kNN reduction | every reduction variant on the **top-`--reduce-top` kNN** (default 3): FCNN v1/v2 (condensed), ENNTH threshold 0/0.5/0.7 (edited), DROP3 and DEL (hybrids) | 7 x 3 |
 | 3. SVM/RF reduction | best SVM and best RF trained on the reduced set of each technique (its best variant on the best kNN, with the best kNN's K, distance and voting) | 4 x 2 |
 
 - **Why the full kNN, SVM and RF grids and not only top candidates:** they are cheap (kNN ~0.1 s per fold, SVM/RF
   seconds), so pruning is only needed for the *tests*, not for running.
 - **Why reduction only on the top kNN configurations:** it is what the assignment asks (`reduction_kNNAlgorithm` =
-  best kNN + reduction) and reducing is expensive (splice fold, K=3: FCNN 1.4 s, EENTh 0.5 s, DROP3 12 s, DEL 21 s).
+  best kNN + reduction) and reducing is expensive (splice fold, K=3: FCNN 1.4 s, ENNTH 0.5 s, DROP3 12 s, DEL 21 s).
   The top-3 instead of only the winner (both modes in one run; `--reduce-top 1` gives only the winner) checks
   whether the ranking of the kNN configurations survives the reduction (descriptive table, no test).
 - **Why the SVM/RF reduced set uses the kNN winner's settings and the variant chosen on the kNN:** the three
@@ -870,7 +878,7 @@ question of Section 1.3 with a pre-defined test. It replaces `experiments/grid_s
 | 3 | Best criterion / n_estimators / max_features for RF | same (a) and (b) | idem |
 | 4 | Is the best kNN / SVM / RF distinguishable from the runner-ups? | top-5 configurations of the model | Friedman + Nemenyi |
 | 5 | SVM and RF in front of the best kNN (accuracy and efficiency) | best kNN, best SVM, best RF | Friedman + Nemenyi on accuracy and on time; Wilcoxon kNN vs SVM and kNN vs RF with Holm |
-| 6 | Best reduction technique for kNN, or reduction does not help | best kNN without reduction (control) + best variant of FCNN, EENTh, DROP3, DEL | Friedman + Bonferroni-Dunn vs control, on accuracy and on `solve_time`; storage as a table |
+| 6 | Best reduction technique for kNN, or reduction does not help | best kNN without reduction (control) + best variant of FCNN, ENNTH, DROP3, DEL | Friedman + Bonferroni-Dunn vs control, on accuracy and on `solve_time`; storage as a table |
 | 7 | Retention vs reduction | best configuration of each retention policy + reduced best kNN (4 techniques) | Friedman + Nemenyi on accuracy; storage and time as a table |
 | 8 | Does reduction change SVM / RF? | best SVM (or RF) full (control) + the 4 reduced versions | Friedman + Bonferroni-Dunn on accuracy and `solve_time` |
 | 9 | kNN vs SVM vs RF when all are reduced | per technique: kNN, SVM, RF on the same reduced set | Friedman + Nemenyi on accuracy and time |
@@ -908,17 +916,19 @@ Feature selection vs sample reduction (and combining them) is answered by reason
   |---|---|---|---|---|
   | splice | kNN | 0.8439 | 0.8439 | +0.0000 |
   | splice | SVM | 0.9690 | 0.9680 | +0.0009 |
-  | splice | RF | 0.9684 | 0.9668 | +0.0016 |
+  | splice | RF | 0.9690 | 0.9690 | +0.0000 |
   | vowel | kNN | 0.9788 | 0.9747 | +0.0040 |
-  | vowel | SVM | 0.9909 | 0.9899 | +0.0010 |
-  | vowel | RF | 0.9798 | 0.9778 | +0.0020 |
+  | vowel | SVM | 0.9909 | 0.9879 | +0.0030 |
+  | vowel | RF | 0.9798 | 0.9758 | +0.0040 |
 
-  The bias is at most 0.004 (0.4 points), smaller than the gaps between kNN, SVM and RF on each dataset, so it does
-  not change any conclusion; the reported accuracies are still an upper bound. (limitation, measured)
+  The bias is at most 0.004 (0.4 points). It is small next to the gap between kNN and the eager models on splice
+  (0.125), but similar in size to some differences between configurations on vowel (e.g. kNN vs RF, 0.0010), where
+  the Nemenyi test already finds no difference between the three models. The reported accuracies are an upper
+  bound, and the tests that compare selected winners give optimistic p-values. (limitation, measured)
 - **Considered and rejected:** select on folds 0-4 and test on folds 5-9. It is honest, but with N = 5 the exact
   Wilcoxon cannot reach p < 0.05 (smallest two-sided p = 2/32 = 0.0625) and Friedman loses most of its power.
 
-### Outputs (`results/gridsearch_v2/`)
+### Outputs (`results/gridsearch/`)
 
 - `<dataset>/base/<model>/*.csv`, `<dataset>/reduction/<model>/*.csv`: one CSV per configuration (the name is a
   hash of the parameters; the parameters are inside the CSV).
@@ -978,8 +988,8 @@ Feature selection vs sample reduction (and combining them) is answered by reason
 | kNN distances                        | Euclidean, Manhattan, Canberra, Clark, HEOM (registry `DISTANCES`); one argument gives train x train   | Own code + `numpy`                                                                               | `src/models/knn/distances.py`        |
 | kNN voting                           | Majority (nearest-tied tie-break) and Inverse Distance (registry `VOTING`)                                         | Own code                                                                                         | `src/models/knn/voting.py`           |
 | kNN retention                        | Never, Always, Different Class, Oblivion by Goodness with neighbor score reinforcement (registry `RETENTION`)        | Own code                                                                                         | `src/models/knn/retention.py`        |
-| Instance reduction                   | FCNN (rules 1..4), EENTh (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
-| Grid search v2                       | Full pipeline with and without reduction, tests per question, winners                                              | Own code + `concurrent.futures` (stdlib)                                                         | `experiments/grid_search_v2.py`       |
+| Instance reduction                   | FCNN (rules 1..4), ENNTH (threshold), DROP (versions 1..5) (registry `REDUCTION_TECHNIQUES`)                        | Own code + `numpy`                                                                               | `src/models/knn/reduction.py`        |
+| Grid search v2                       | Full pipeline with and without reduction, tests per question, winners                                              | Own code + `concurrent.futures` (stdlib)                                                         | `../experiments/grid_search.py`       |
 | Winner plots                         | ROC (macro OvR), PR (micro), confusion matrices, accuracy vs storage / time                                          | Own code + `numpy` (curves, AUC, AP), `matplotlib`                                               | `experiments/plot_winners.py`         |
 | vowel columns check                  | Best vowel kNN with three drop lists, Friedman + Wilcoxon/Holm                                                       | Own code (project `Preprocessor`, `KNN`, `stats`)                                                | `experiments/vowel_columns.py`        |
 | Selection bias                       | Leave-one-fold-out estimate with the grid's selection rule                                                           | Own code + `pandas` (grid v2 helpers)                                                            | `experiments/selection_bias.py`       |

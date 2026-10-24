@@ -40,15 +40,15 @@ def test_variant_b_is_the_current_preprocessing():
 
 
 def test_missing_winners_file_is_a_clear_error(tmp_path):
-    with pytest.raises(FileNotFoundError, match="grid_search_v2.py"):
+    with pytest.raises(FileNotFoundError, match="grid_search.py"):
         vowel_columns.best_vowel_knn(tmp_path)
 
 
 @needs_vowel
 def test_script_writes_the_report(tmp_path):
-    winners = config.RESULTS_DIR / "gridsearch_v2" / "winners.json"
+    winners = config.RESULTS_DIR / "gridsearch" / "winners.json"
     if not winners.exists():
-        pytest.skip("grid v2 results not available")
+        pytest.skip("the grid search results not available")
     out = tmp_path / "out"
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "--out", str(out)], capture_output=True, text=True

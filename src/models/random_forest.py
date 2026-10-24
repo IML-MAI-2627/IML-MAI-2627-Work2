@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from time import perf_counter
+
 from numpy import ndarray
 from sklearn.ensemble import RandomForestClassifier
 
@@ -112,22 +116,79 @@ class RandomForest(BaseClassifier):
 
         return train_X, train_y, test_X, test_y
 
-    def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
-        train_X, train_y, test_X, test_y = self.prepare_data(train, test)
+    def fit(self, train: Preprocessed) -> RandomForest:
+        """Fit the Random Forest classifier on preprocessed train data (with optional reduction)."""
+        train = self.reduce_train(train)
+        train_X = train.to_onehot()
+        if len(train_X) == 0:
+            raise ValueError("Training data must not be empty")
+        train_y = train.y_codes
+        if len(train_X) != len(train_y):
+            raise ValueError("Training features and labels must have the same number of instances")
+
+        t0 = perf_counter()
         clf = RandomForestClassifier(**self.rf_params)
         clf.fit(train_X, train_y)
+        self.fit_time = perf_counter() - t0
+        self.clf_ = clf
+        self.train_y_ = train_y
+        return self
 
+    def predict(self, test: Preprocessed) -> ClassificationResult:
+        """Predict labels on preprocessed test data using the fitted Random Forest."""
+        if getattr(self, "clf_", None) is None:
+            raise RuntimeError("Model is not fitted yet. Call fit() first.")
+        test_X = test.to_onehot()
+        if len(test_X) == 0:
+            raise ValueError("Test data must not be empty")
+        test_y = test.y_codes
+        if len(test_X) != len(test_y):
+            raise ValueError("Test features and labels must have the same number of instances")
+
+        t0 = perf_counter()
+        scores = None
+        if self.return_scores:
+            raw = self.clf_.predict_proba(test_X)
+            scores = full_class_scores(raw, self.clf_.classes_, len(test.class_values), 0.0)
+        preds = self.clf_.predict(test_X)
+        self.predict_time = perf_counter() - t0
+
+        return ClassificationResult(
+            predictions=preds,
+            storage=len(self.train_y_),
+            scores=scores,
+            reduction_time=self.reduction_time,
+            reduction_wall_time=self.reduction_wall_time,
+            fit_time=self.fit_time,
+            predict_time=self.predict_time,
+        )
+
+    def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
+        train_X, train_y, test_X, test_y = self.prepare_data(train, test)
+
+        t_fit = perf_counter()
+        clf = RandomForestClassifier(**self.rf_params)
+        clf.fit(train_X, train_y)
+        self.fit_time = perf_counter() - t_fit
+        self.clf_ = clf
+        self.train_y_ = train_y
+
+        t_pred = perf_counter()
         scores = None
         if self.return_scores:
             raw = clf.predict_proba(test_X)
             scores = full_class_scores(raw, clf.classes_, len(test.class_values), 0.0)
+        predictions = clf.predict(test_X)
+        self.predict_time = perf_counter() - t_pred
 
         return ClassificationResult(
-            predictions=clf.predict(test_X),
+            predictions=predictions,
             storage=len(train_y),
             scores=scores,
             reduction_time=self.reduction_time,
             reduction_wall_time=self.reduction_wall_time,
+            fit_time=self.fit_time,
+            predict_time=self.predict_time,
         )
 
 

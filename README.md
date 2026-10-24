@@ -55,18 +55,18 @@ the end.
 - `experiments/` — the entry points (see *Entry points*).
 - `scripts/make_submission.py` — builds the delivery ZIP.
 - `results/` — outputs (CSV, Markdown, PNG); the grid search results are committed in
-  `results/gridsearch_v2/`.
+  `results/gridsearch/`.
 - `tests/` — pytest tests. `docs/DECISIONS.md` — every design decision and its reason.
   `report/` — notes for the report.
 
 ## Execution order
 
 1. `python experiments/eda.py --dataset all --fold 0` — optional, independent.
-2. `python experiments/grid_search_v2.py --dataset all --stage run` — the experiments
-   (about 2 h); writes one CSV per configuration in `results/gridsearch_v2/`.
-3. `python experiments/grid_search_v2.py --dataset all --stage evaluate` — tests and reports;
-   **needs the CSVs of step 2** and writes `results/gridsearch_v2/winners.json`.
-4. `python experiments/plot_winners.py --results results/gridsearch_v2` — **needs
+2. `python experiments/grid_search.py --dataset all --stage run` — the experiments
+   (about 2 h); writes one CSV per configuration in `results/gridsearch/`.
+3. `python experiments/grid_search.py --dataset all --stage evaluate` — tests and reports;
+   **needs the CSVs of step 2** and writes `results/gridsearch/winners.json`.
+4. `python experiments/plot_winners.py --results results/gridsearch` — **needs
    `winners.json`** (step 3).
 5. `python experiments/vowel_columns.py` — **needs `winners.json`** (step 3).
 6. `python experiments/selection_bias.py` — **needs the CSVs of step 2**.
@@ -80,8 +80,8 @@ step 2. `experiments/run.py` runs one configuration on its own and depends on no
 |---|---|---|
 | `experiments/run.py` | One classifier and parameter set on the 10 folds | `python experiments/run.py --dataset vowel --classifier knn --k 3 --distance heom` |
 | `experiments/eda.py` | Exploratory figures and summary | `python experiments/eda.py --dataset all --fold 0` |
-| `experiments/grid_search_v2.py` | All experiments and statistical tests | `python experiments/grid_search_v2.py --dataset all --stage all` |
-| `experiments/plot_winners.py` | ROC/PR, confusion and trade-off plots of the winners | `python experiments/plot_winners.py --results results/gridsearch_v2` |
+| `experiments/grid_search.py` | All experiments and statistical tests | `python experiments/grid_search.py --dataset all --stage all` |
+| `experiments/plot_winners.py` | ROC/PR, confusion and trade-off plots of the winners | `python experiments/plot_winners.py --results results/gridsearch` |
 | `experiments/vowel_columns.py` | Which vowel columns to keep (A/B/C comparison) | `python experiments/vowel_columns.py` |
 | `experiments/selection_bias.py` | Leave-one-fold-out estimate of the selection bias | `python experiments/selection_bias.py` |
 | `scripts/make_submission.py` | Delivery ZIP | `python scripts/make_submission.py --report path/to/report.pdf` |
@@ -265,7 +265,7 @@ Instance reduction algorithms select a representative subset of training instanc
 - `--reduction` (string): Training set instance reduction technique, selected from `REDUCTION_TECHNIQUES` in `src/models/knn/reduction.py`.
   - `none`: Use the full training set without reduction (default).
   - `fcnn`: Fast Condensed Nearest Neighbor (Angiulli, 2007). Order-independent, training-set consistent condensation.
-  - `eenth`: Extended Edited Nearest Neighbor with Threshold (Vázquez & Sánchez, 2005). Prunes noisy and ambiguous borderline instances.
+  - `ennth`: Edited Nearest Neighbor with Threshold (ENNTH; Vázquez & Sánchez, 2005). Prunes noisy and ambiguous borderline instances.
   - `drop`: Decremental Reduction Optimization Procedure (Wilson & Martínez, 2000). Decrementally prunes internal and noisy prototypes.
   - `del`: Decremental Encoding Length (Cameron-Jones, 1995; Wilson & Martinez, 2000 Sections 3.2.8 & 4.6). Minimum Description Length pruning using numerically stable log-space combinatorial sums.
   Default: `none`.
@@ -275,9 +275,9 @@ Instance reduction algorithms select a representative subset of training instanc
 - `--version` (integer): Algorithm variant/rule. Exclusive to `--reduction fcnn` and `--reduction drop`:
   - For `fcnn`: `1` (each prototype adds its nearest enemy), `2` (each prototype adds the medoid of its enemies), `3` / `4` (as 1 / 2 but one instance per iteration). Default: 1.
   - For `drop`: `1` (DROP1), `2` (DROP2), `3` (DROP3 with ENN filtering), `4` (DROP4), `5` (DROP5). Default: 3.
-  *(Forbidden with `--reduction eenth`, `--reduction del`, or `--reduction none`)*.
+  *(Forbidden with `--reduction ennth`, `--reduction del`, or `--reduction none`)*.
 
-- `--threshold` (float): Acceptance consensus threshold $\in [0, 1]$. Exclusive to `--reduction eenth`:
+- `--threshold` (float): Acceptance consensus threshold $\in [0, 1]$. Exclusive to `--reduction ennth`:
   - An instance is removed if its distance-weighted class probability (weights 1/(1+d) over its $k$ nearest neighbours) does not predict its label, or if that maximum probability is <= this threshold (Vázquez, Sánchez & Pla, 2005). Default: 0.0.
   *(Forbidden with `--reduction fcnn`, `--reduction drop`, `--reduction del`, or `--reduction none`)*.
 
@@ -297,8 +297,8 @@ python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction del
 # kNN with FCNN rule 2 (nearest enemy) and dynamic Oblivion by Goodness retention
 python experiments/run.py --dataset splice --classifier knn --k 3 --reduction fcnn --version 2 --retention oblivion_by_goodness
 
-# kNN with EENTh filtering at consensus threshold 0.6
-python experiments/run.py --dataset vowel --classifier knn --k 5 --reduction eenth --threshold 0.6
+# kNN with ENNTH filtering at consensus threshold 0.6
+python experiments/run.py --dataset vowel --classifier knn --k 5 --reduction ennth --threshold 0.6
 
 # SVM with DROP3 instance reduction (uses --reduction_k)
 python experiments/run.py --dataset vowel --classifier svm --kernel rbf --reduction drop --version 3 --reduction_k 3
@@ -404,55 +404,55 @@ Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vo
 `all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
 changes the output folder.
 
-## Grid Search v2 (final experiments, with and without reduction)
+## Grid Search (final experiments, with and without reduction)
 
-`experiments/grid_search_v2.py` runs every experiment of the assignment and the statistical tests
+`experiments/grid_search.py` runs every experiment of the assignment and the statistical tests
 that answer each question. The reasoning and the list of tests are in `docs/DECISIONS.md`
-("Grid search v2"). Run from the project root:
+("Grid search"). Run from the project root:
 
 ```bash
 # everything: run the grids, then the tests (both datasets)
-python experiments/grid_search_v2.py --dataset all --stage all
+python experiments/grid_search.py --dataset all --stage all
 
 # only one dataset, or only one stage
-python experiments/grid_search_v2.py --dataset splice --stage run
-python experiments/grid_search_v2.py --dataset splice --stage evaluate
+python experiments/grid_search.py --dataset splice --stage run
+python experiments/grid_search.py --dataset splice --stage evaluate
 ```
 
 Options:
 
 - `--dataset` `splice`, `vowel` or `all` (default `all`). Datasets are always analysed separately.
 - `--stage` `run` (experiments), `evaluate` (tests and reports from the CSVs) or `all` (default).
-- `--out` output folder (default `results/gridsearch_v2`).
+- `--out` output folder (default `results/gridsearch`).
 - `--jobs N` parallel processes (default 1). Use 1 for the final times: parallel processes
   compete for the CPU and inflate them. `N > 1` is fine to get accuracies quickly.
 - `--reduce-top N` how many of the best kNN configurations get every reduction technique
   (default 3; the best one is the `reduction_kNNAlgorithm`, the others check robustness).
 
 Expected time with `--jobs 1`: about 2 hours (splice ~1.5 h, vowel ~20 min; sum of the measured
-times of our run). The results of our run are committed in `results/gridsearch_v2/`, so
+times of our run). The results of our run are committed in `results/gridsearch/`, so
 `--stage evaluate` and `plot_winners.py` can be run directly on them (a few minutes).
 
 `run` has three phases: (1) full kNN / SVM / RF grids without reduction; (2) every
-reduction variant (FCNN, EENTh, DROP3, DEL) on the best kNN configurations; (3) the best SVM and RF trained on the reduced set of each technique. It is
+reduction variant (FCNN, ENNTH, DROP3, DEL) on the best kNN configurations; (3) the best SVM and RF trained on the reduced set of each technique. It is
 resumable: a configuration whose CSV exists is skipped, so an interrupted run can simply be
 started again.
 
-Each reduced training set is computed once and stored in `results/gridsearch_v2/reduction_cache/`
+Each reduced training set is computed once and stored in `results/gridsearch/reduction_cache/`
 (not committed; delete it to recompute), because the best SVM and RF reuse the reductions of the
 best kNN. The reported times still include the reduction time measured when it was computed. The
 cache is off by default: a classifier only uses it when its `reduction_cache_dir` attribute is
-set, which `grid_search_v2.py` does for every classifier it creates:
+set, which `grid_search.py` does for every classifier it creates:
 
 ```python
 model = SVM({"kernel": "rbf", "reduction": "drop", "version": 3})
-model.reduction_cache_dir = Path("results/gridsearch_v2/reduction_cache")  # optional
+model.reduction_cache_dir = Path("results/gridsearch/reduction_cache")  # optional
 ```
 
-Output (`results/gridsearch_v2/`):
+Output (`results/gridsearch/`):
 
 ```text
-results/gridsearch_v2/
+results/gridsearch/
 ├── winners.json                 # parameters of the winners (used by plot_winners.py)
 └── <dataset>/
     ├── report.md                # tables and every test, per question of the assignment
@@ -468,13 +468,13 @@ results/gridsearch_v2/
 After `--stage evaluate`:
 
 ```bash
-python experiments/plot_winners.py --results results/gridsearch_v2
+python experiments/plot_winners.py --results results/gridsearch
 ```
 
 It retrains the winners in `winners.json` (best kNN, SVM and RF, without and with the best
 reduction technique) on the 10 folds with per-class scores, checks that the accuracy is the
 one of the grid search, caches the scores in `plots/cache/` and writes to
-`results/gridsearch_v2/plots/`: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` and
+`results/gridsearch/plots/`: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` and
 `tradeoff_<dataset>.png` (accuracy vs storage and vs solve time) and `reduction_<dataset>.png`
 (accuracy, solve time, reduction time and storage per technique for kNN, SVM and RF). `--retrain` ignores the
 cache; `--dataset` limits it to one dataset.
@@ -485,12 +485,12 @@ cache; `--dataset` limits it to one dataset.
 python experiments/vowel_columns.py
 ```
 
-Runs the best vowel kNN of grid v2 (read from `winners.json`) with three column sets: (A) the 10
+Runs the best vowel kNN of the grid search (read from `winners.json`) with three column sets: (A) the 10
 numeric features, (B) A + `Sex` (the current preprocessing) and (C) B + `Speaker_Number`, and
 compares them with Friedman and pairwise Wilcoxon (Holm). Writes `vowel_columns.md` (tables, tests
 and how often the nearest training case is the same speaker) and `vowel_columns_accuracy.csv`
 (per fold) to `results/vowel_columns/`. Options (both flags, optional): `--results` grid folder
-with `winners.json` (default `results/gridsearch_v2`), `--out` output folder (default
+with `winners.json` (default `results/gridsearch`), `--out` output folder (default
 `results/vowel_columns`). About 3 s.
 
 ## Selection bias
@@ -503,7 +503,7 @@ Leave-one-fold-out estimate of the bias of selecting and testing on the same 10 
 fold, the best configuration on the other 9 (same rule as the grid) is scored on it. One row per
 dataset and model (kNN, SVM, RF, without reduction). Writes `selection_bias.md` and
 `selection_bias.csv` to `results/selection_bias/`. Options (both flags, optional): `--results`
-grid folder (default `results/gridsearch_v2`), `--out` output folder (default
+grid folder (default `results/gridsearch`), `--out` output folder (default
 `results/selection_bias`). About 3 s.
 
 ## Building the delivery ZIP

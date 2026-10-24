@@ -65,7 +65,7 @@ ScoreFunction = Callable[[Sequence[Neighbor], int], np.ndarray]
 def check_k(k: object, limit: int | None = None) -> int:
     """Validate neighborhood size k as a strictly positive integer.
 
-    Used by: KNN.parse_params(), run_kNN(), and all reduction methods (FCNN, EENTh, DROP).
+    Used by: KNN.parse_params(), run_kNN(), and all reduction methods (FCNN, ENNTH, DROP).
     """
     if isinstance(k, bool) or not isinstance(k, int | np.integer) or k <= 0:
         raise ValueError("k must be a positive integer")
@@ -147,7 +147,7 @@ def subset_preprocessed(data: Preprocessed, indices: np.ndarray | Sequence[int])
 def compute_distance_matrix(data: Preprocessed, distance_fn: DistanceFunction) -> np.ndarray:
     """Calculate the symmetric (n, n) pairwise distance matrix with zero diagonal.
 
-    Used by: FCNN, EENTh, and DROP to evaluate neighborhood relationships.
+    Used by: FCNN, ENNTH, and DROP to evaluate neighborhood relationships.
     """
     n = len(data.y_codes)
     try:
@@ -188,7 +188,7 @@ def classify_from_neighbors(
 ) -> int:
     """Classify a query instance using a given list of neighbor indices and a voting function.
 
-    Used by: FCNN (consistency checking), EENTh (tie breaking), and DROP (leave-one-out checking).
+    Used by: FCNN (consistency checking), ENNTH (tie breaking), and DROP (leave-one-out checking).
     """
     nb_objects = [
         Neighbor(
@@ -369,7 +369,9 @@ def run_kNN(
     ``score_function`` (optional) also returns per-class vote shares, for ROC / PR curves.
     Used by: KNN.fit_predict() to execute standard or precomputed kNN evaluation.
     """
-    n_classes = len(train.class_values)
+    n_classes = len(getattr(train, "class_values", ())) or (
+        int(np.max(train.y_codes)) + 1 if len(train.y_codes) > 0 else 0
+    )
     if retention_function is None:
         neighbors = nearest_neighbors(
             train, test, distance_function, k_max=k, distance_matrix=distance_matrix

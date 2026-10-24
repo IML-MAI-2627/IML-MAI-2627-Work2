@@ -1,9 +1,9 @@
-"""Retrain the winners of grid_search_v2 and plot ROC, PR, confusion matrices and trade-offs.
+"""Retrain the winners of grid_search and plot ROC, PR, confusion matrices and trade-offs.
 
-Reads ``winners.json`` written by ``grid_search_v2.py --stage evaluate``. Run from the
+Reads ``winners.json`` written by ``grid_search.py --stage evaluate``. Run from the
 project root:
 
-    python experiments/plot_winners.py --results results/gridsearch_v2
+    python experiments/plot_winners.py --results results/gridsearch
 
 For every dataset and winner (best kNN / SVM / RF, without and with the best reduction
 technique) the 10 folds are run again with per-class scores switched on. Seeds are fixed, so
@@ -34,7 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "experiments"))
 
-from grid_search_v2 import (  # noqa: E402
+from grid_search import (  # noqa: E402
     CLASSIFIERS,
     KNN_BASE_KEYS,
     load_dataset,
@@ -48,7 +48,7 @@ from experiment_runner import confusion_matrix, load_fold  # noqa: E402
 # Fixed categorical order (identity follows the model, never its rank). Reduced = dashed.
 COLORS = {"knn": "#2a78d6", "svm": "#eb6834", "rf": "#1baf7a"}
 NAMES = {"knn": "kNN", "svm": "SVM", "rf": "RF"}
-MARKERS = {"none": "o", "fcnn": "s", "eenth": "^", "drop": "D", "del": "v"}
+MARKERS = {"none": "o", "fcnn": "s", "ennth": "^", "drop": "D", "del": "v"}
 WINNER_KEYS = ("knn", "svm", "rf", "knn_reduced", "svm_reduced", "rf_reduced")
 
 plt.rcParams.update(
@@ -71,6 +71,7 @@ def run_winner(dataset: str, winner: dict) -> dict[str, np.ndarray]:
     model.return_scores = True
     config.set_seed()  # same seed reset as run_experiment
     y_true, y_pred, scores, folds = [], [], [], []
+    fit_times, predict_times, reduction_times = [], [], []
     for fold in range(config.N_FOLDS):
         train, test, _ = load_fold(dataset, fold)
         result = model.fit_predict(train, test)
@@ -78,18 +79,26 @@ def run_winner(dataset: str, winner: dict) -> dict[str, np.ndarray]:
         y_pred.append(np.asarray(result.predictions, dtype=np.int64))
         scores.append(result.scores)
         folds.append(np.full(len(test.y_codes), fold))
+        fit_times.append(float(getattr(result, "fit_time", 0.0)))
+        predict_times.append(float(getattr(result, "predict_time", 0.0)))
+        reduction_times.append(float(getattr(result, "reduction_time", 0.0)))
     return {
         "y_true": np.concatenate(y_true),
         "y_pred": np.concatenate(y_pred),
         "scores": np.vstack(scores),
         "fold": np.concatenate(folds),
+        "fit_times": np.asarray(fit_times, dtype=np.float64),
+        "predict_times": np.asarray(predict_times, dtype=np.float64),
+        "reduction_times": np.asarray(reduction_times, dtype=np.float64),
     }
 
 
 def load_or_run(cache: Path, dataset: str, key: str, winner: dict, retrain: bool) -> dict:
     path = cache / f"{dataset}_{key}.npz"
     if path.exists() and not retrain:
-        return dict(np.load(path))
+        loaded = dict(np.load(path))
+        if "fit_times" in loaded and "predict_times" in loaded:
+            return loaded
     data = run_winner(dataset, winner)
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **data)
@@ -290,7 +299,7 @@ def plot_tradeoff(dataset: str, results: Path, winners: dict, out: Path) -> None
     plt.close(fig)
 
 
-TECHNIQUES = ("none", "fcnn", "eenth", "drop", "del")
+TECHNIQUES = ("none", "fcnn", "ennth", "drop", "del")
 
 
 def reduction_table(results: Path, dataset: str, winners: dict) -> pd.DataFrame:
@@ -387,9 +396,307 @@ def plot_reduction(dataset: str, results: Path, winners: dict, out: Path) -> Non
     plt.close(fig)
 
 
+def format_time(seconds: float) -> str:
+    """Format seconds into human-readable ns, µs, ms, or s."""
+    if seconds <= 0:
+        return "0 s"
+    if seconds <= 1e-10:  # the bars are floored at 1e-10 s for the log scale (kNN fit)
+        return "< 0.1 ns"
+    if seconds < 1e-6:
+        return f"{seconds * 1e9:.1f} ns"
+    if seconds < 1e-3:
+        return f"{seconds * 1e6:.1f} µs"
+    if seconds < 1.0:
+        return f"{seconds * 1e3:.1f} ms"
+    return f"{seconds:.2f} s"
+
+
+def grid_times(results: Path, dataset: str, winners: dict) -> dict[str, dict[str, np.ndarray]]:
+    """Per-fold fit and predict times of each winner, read from the grid search CSVs.
+
+    These are the runs behind the times of the report. The cached runs of this script also
+    compute the ROC/PR scores inside ``predict``, which makes their predict times longer.
+    """
+    df = load_dataset(results, dataset)
+    times = {}
+    for key in WINNER_KEYS:
+        if key not in winners:
+            continue
+        params = {k: str(v) for k, v in winners[key]["params"].items()}
+        rows = df[
+            (df["key"] == key.split("_")[0])
+            & (df["reduction"] == params.get("reduction", "none"))
+            & df["p"].map(lambda p, w=params: all(p.get(k) == v for k, v in w.items()))
+        ].sort_values("fold")
+        if rows["config"].nunique() != 1 or len(rows) != config.N_FOLDS:
+            raise ValueError(f"{dataset} {key}: expected one configuration with 10 folds")
+        times[key] = {
+            "fit_times": rows["fit_time"].to_numpy(dtype=np.float64),
+            "predict_times": rows["predict_time"].to_numpy(dtype=np.float64),
+        }
+    return times
+
+
+def plot_timing_comparison(dataset: str, runs: dict, winners: dict, out: Path) -> None:
+    """Compare per-instance training (fit) and inference (predict) times: eager vs lazy.
+
+    ``runs`` maps each winner to its per-fold ``fit_times`` and ``predict_times`` (see
+    ``grid_times``).
+    """
+    base_keys = [k for k in ("knn", "svm", "rf") if k in runs]
+    red_keys = [k for k in ("knn_reduced", "svm_reduced", "rf_reduced") if k in runs]
+    all_keys = [k for k in WINNER_KEYS if k in runs]
+
+    # Pre-calculate training and test fold sizes to normalize per-instance
+    train_sizes = []
+    test_sizes = []
+    for f in range(config.N_FOLDS):
+        tr, te, _ = load_fold(dataset, f)
+        train_sizes.append(len(tr.y))
+        test_sizes.append(len(te.y_codes))
+    train_sizes = np.asarray(train_sizes, dtype=np.float64)
+    test_sizes = np.asarray(test_sizes, dtype=np.float64)
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    (ax_base, ax_red), (ax_fit, ax_ratio) = axes
+
+    c_fit = "#d95f02"  # Training / Fit
+    c_pred = "#2a78d6"  # Inference / Predict
+
+    # 1. Unreduced Models: Fit vs Predict (per-instance)
+    x = np.arange(len(base_keys))
+    width = 0.35
+    fits = [max(float(np.mean(runs[k]["fit_times"] / train_sizes)), 1e-10) for k in base_keys]
+    fit_stds = [float(np.std(runs[k]["fit_times"] / train_sizes)) for k in base_keys]
+    preds = [max(float(np.mean(runs[k]["predict_times"] / test_sizes)), 1e-10) for k in base_keys]
+    pred_stds = [float(np.std(runs[k]["predict_times"] / test_sizes)) for k in base_keys]
+
+    b1 = ax_base.bar(
+        x - width / 2,
+        fits,
+        width,
+        yerr=fit_stds,
+        label="Training (fit / train sample)",
+        color=c_fit,
+        edgecolor="white",
+        capsize=3,
+        error_kw={"ecolor": "#52514e", "elinewidth": 1},
+    )
+    b2 = ax_base.bar(
+        x + width / 2,
+        preds,
+        width,
+        yerr=pred_stds,
+        label="Inference (predict / test query)",
+        color=c_pred,
+        edgecolor="white",
+        capsize=3,
+        error_kw={"ecolor": "#52514e", "elinewidth": 1},
+    )
+
+    for rect, val in zip(b1, fits, strict=False):
+        ax_base.text(
+            rect.get_x() + rect.get_width() / 2,
+            val * 1.3,
+            format_time(val),
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#222",
+        )
+    for rect, val in zip(b2, preds, strict=False):
+        ax_base.text(
+            rect.get_x() + rect.get_width() / 2,
+            val * 1.3,
+            format_time(val),
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#222",
+        )
+
+    ax_base.set_xticks(x)
+    ax_base.set_xticklabels([NAMES[k] for k in base_keys])
+    ax_base.set(
+        yscale="log",
+        ylabel="Time per instance (log scale)",
+        title="Unreduced Winners: Training vs Inference Time (per instance)",
+    )
+    ax_base.legend(frameon=False, fontsize=9, loc="upper left")
+    ax_base.grid(axis="x", visible=False)
+
+    # 2. Reduced Models: Fit vs Predict (per-instance)
+    if red_keys:
+        x_red = np.arange(len(red_keys))
+        fits_r = [max(float(np.mean(runs[k]["fit_times"] / train_sizes)), 1e-10) for k in red_keys]
+        fit_stds_r = [float(np.std(runs[k]["fit_times"] / train_sizes)) for k in red_keys]
+        preds_r = [
+            max(float(np.mean(runs[k]["predict_times"] / test_sizes)), 1e-10) for k in red_keys
+        ]
+        pred_stds_r = [float(np.std(runs[k]["predict_times"] / test_sizes)) for k in red_keys]
+
+        b1_r = ax_red.bar(
+            x_red - width / 2,
+            fits_r,
+            width,
+            yerr=fit_stds_r,
+            label="Training (fit / train sample)",
+            color=c_fit,
+            edgecolor="white",
+            capsize=3,
+            error_kw={"ecolor": "#52514e", "elinewidth": 1},
+        )
+        b2_r = ax_red.bar(
+            x_red + width / 2,
+            preds_r,
+            width,
+            yerr=pred_stds_r,
+            label="Inference (predict / test query)",
+            color=c_pred,
+            edgecolor="white",
+            capsize=3,
+            error_kw={"ecolor": "#52514e", "elinewidth": 1},
+        )
+
+        for rect, val in zip(b1_r, fits_r, strict=False):
+            ax_red.text(
+                rect.get_x() + rect.get_width() / 2,
+                val * 1.3,
+                format_time(val),
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="#222",
+            )
+        for rect, val in zip(b2_r, preds_r, strict=False):
+            ax_red.text(
+                rect.get_x() + rect.get_width() / 2,
+                val * 1.3,
+                format_time(val),
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="#222",
+            )
+
+        ax_red.set_xticks(x_red)
+        ax_red.set_xticklabels([label(k, winners) for k in red_keys], rotation=15, ha="right")
+        ax_red.set(
+            yscale="log",
+            ylabel="Time per instance (log scale)",
+            title="Reduced Winners: Training vs Inference Time (per instance)",
+        )
+        ax_red.legend(frameon=False, fontsize=9, loc="upper left")
+        ax_red.grid(axis="x", visible=False)
+
+    # 3. Direct Training Time (Fit) Comparison (per-instance)
+    x_all = np.arange(len(all_keys))
+    all_fits = [max(float(np.mean(runs[k]["fit_times"] / train_sizes)), 1e-10) for k in all_keys]
+    all_fit_stds = [float(np.std(runs[k]["fit_times"] / train_sizes)) for k in all_keys]
+    bar_colors = [COLORS[k.replace("_reduced", "")] for k in all_keys]
+    hatches = ["//" if k.endswith("_reduced") else "" for k in all_keys]
+
+    bars_fit = ax_fit.bar(
+        x_all,
+        all_fits,
+        yerr=all_fit_stds,
+        color=bar_colors,
+        edgecolor="#52514e",
+        linewidth=0.8,
+        capsize=3,
+        error_kw={"ecolor": "#52514e", "elinewidth": 1},
+    )
+    for b, h in zip(bars_fit, hatches, strict=False):
+        b.set_hatch(h)
+
+    for rect, val in zip(bars_fit, all_fits, strict=False):
+        ax_fit.text(
+            rect.get_x() + rect.get_width() / 2,
+            val * 1.35,
+            format_time(val),
+            ha="center",
+            va="bottom",
+            fontsize=7.5,
+            color="#222",
+        )
+
+    ax_fit.set_xticks(x_all)
+    ax_fit.set_xticklabels(
+        [label(k, winners) for k in all_keys], rotation=25, ha="right", fontsize=8.5
+    )
+    ax_fit.set(
+        yscale="log",
+        ylabel="Fit time per training instance (s, log scale)",
+        title="Training Time per Instance: Lazy (kNN) vs Eager (SVM, RF)",
+    )
+    ax_fit.grid(axis="x", visible=False)
+
+    # 4. Training-to-Inference Ratio: (Fit / train sample) / (Predict / test sample)
+    ratios = [
+        float(np.mean(runs[k]["fit_times"] / train_sizes))
+        / max(float(np.mean(runs[k]["predict_times"] / test_sizes)), 1e-12)
+        for k in all_keys
+    ]
+    clamped_ratios = [max(r, 1e-6) for r in ratios]
+    bars_ratio = ax_ratio.bar(
+        x_all, clamped_ratios, color=bar_colors, edgecolor="#52514e", linewidth=0.8
+    )
+    for b, h in zip(bars_ratio, hatches, strict=False):
+        b.set_hatch(h)
+
+    for rect, val in zip(bars_ratio, ratios, strict=False):
+        text_val = f"{val:.1f}x" if val >= 1.0 else f"1/{1.0 / max(val, 1e-12):.0f}x"
+        ax_ratio.text(
+            rect.get_x() + rect.get_width() / 2,
+            max(val, 1e-6) * 1.3,
+            text_val,
+            ha="center",
+            va="bottom",
+            fontsize=7.5,
+            color="#222",
+        )
+
+    ax_ratio.axhline(
+        1.0,
+        color="#8a8984",
+        linestyle="--",
+        linewidth=1.2,
+        label="Equal per-sample time (Ratio = 1)",
+    )
+    ax_ratio.set_xticks(x_all)
+    ax_ratio.set_xticklabels(
+        [label(k, winners) for k in all_keys], rotation=25, ha="right", fontsize=8.5
+    )
+    ax_ratio.set(
+        yscale="log",
+        ylabel="Ratio: (Fit / train sample) / (Predict / test sample)",
+        title="Per-Sample Cost Ratio: Eager (Fit >> Predict) vs Lazy (Predict >> Fit)",
+    )
+    ax_ratio.legend(frameon=False, fontsize=8.5, loc="upper left")
+    ax_ratio.grid(axis="x", visible=False)
+
+    # Adjust headroom
+    for ax in (ax_base, ax_red, ax_fit, ax_ratio):
+        ymin, ymax = ax.get_ylim()
+        ax.set_ylim(ymin * 0.3, ymax * 5.0)
+
+    fig.suptitle(
+        f"{dataset}: Per-Instance Training Time vs. Inference Time (Eager vs. Lazy Learners)",
+        fontsize=12,
+        y=0.98,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(out / f"timing_{dataset}.png", dpi=150)
+    plt.close(fig)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(out / f"timing_{dataset}.png", dpi=150)
+    plt.close(fig)
+
+
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Plots of the grid_search_v2 winners.")
-    parser.add_argument("--results", type=Path, default=config.RESULTS_DIR / "gridsearch_v2")
+    default_results = config.RESULTS_DIR / "gridsearch"
+    parser = argparse.ArgumentParser(description="Plots of the grid search winners.")
+    parser.add_argument("--results", type=Path, default=default_results)
     parser.add_argument("--dataset", choices=[*config.DATASETS, "all"], default="all")
     parser.add_argument("--retrain", action="store_true", help="ignore the cached scores")
     args = parser.parse_args(argv)
@@ -411,6 +718,7 @@ def main(argv: list[str] | None = None) -> None:
         plot_confusions(dataset, runs, winners, classes, out)
         plot_tradeoff(dataset, args.results, winners, out)
         plot_reduction(dataset, args.results, winners, out)
+        plot_timing_comparison(dataset, grid_times(args.results, dataset, winners), winners, out)
         print(f"[{dataset}] plots saved to {out}")
 
 

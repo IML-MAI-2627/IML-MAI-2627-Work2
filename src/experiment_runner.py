@@ -32,6 +32,8 @@ class ClassificationResult:
     # Seconds of reduction actually spent in this call; smaller than reduction_time when the
     # reduced set came from the cache. None means equal to reduction_time.
     reduction_wall_time: float | None = None
+    fit_time: float = 0.0
+    predict_time: float = 0.0
 
 
 Classifier = Callable[
@@ -59,6 +61,8 @@ class ExperimentResult:
     reduction_time: float
     macro_f1: float
     confusion_matrix: str  # JSON list of lists: rows = true class, columns = predicted
+    fit_time: float = 0.0
+    predict_time: float = 0.0
 
 
 Params = dict[str, object]
@@ -77,6 +81,8 @@ CSV_COLUMNS = (
     "reduction_time",
     "macro_f1",
     "confusion_matrix",
+    "fit_time",
+    "predict_time",
 )
 
 
@@ -175,6 +181,9 @@ def run_fold(
     )
     matrix = confusion_matrix(test.y_codes, predictions, n_classes)
 
+    fit_time = float(getattr(result, "fit_time", 0.0))
+    predict_time = float(getattr(result, "predict_time", 0.0))
+
     return ExperimentResult(
         dataset=dataset,
         fold=fold,
@@ -188,6 +197,8 @@ def run_fold(
         reduction_time=reduction_time,
         macro_f1=macro_f1(matrix),
         confusion_matrix=json.dumps(matrix.tolist(), separators=(",", ":")),
+        fit_time=fit_time,
+        predict_time=predict_time,
     )
 
 

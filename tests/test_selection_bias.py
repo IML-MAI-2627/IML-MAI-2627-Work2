@@ -7,7 +7,7 @@ from experiments.selection_bias import leave_one_fold_out
 
 
 def rows(accuracy: dict[str, list[float]], time: dict[str, float] | None = None) -> pd.DataFrame:
-    """Per-(config, fold) rows in the shape grid_search_v2.summarize expects."""
+    """Per-(config, fold) rows in the shape grid_search.summarize expects."""
     time = time or {}
     records = []
     for config, accs in accuracy.items():
@@ -23,6 +23,8 @@ def rows(accuracy: dict[str, list[float]], time: dict[str, float] | None = None)
                     "macro_f1": acc,
                     "time": time.get(config, 1.0),
                     "solve_time": time.get(config, 1.0),
+                    "fit_time": 0.0,
+                    "predict_time": time.get(config, 1.0),
                     "storage": 100.0,
                 }
             )

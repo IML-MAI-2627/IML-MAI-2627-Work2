@@ -1,5 +1,7 @@
 # Instance reduction: kNN (#19) and SVM / RF (#20)
 
+Draft written on an earlier run; the final numbers are in the report and in `results/gridsearch/`.
+
 Draft for the report. Numbers come from `results/gridsearch_v2/<dataset>/report.md` and
 `tests.csv` (grid search v2, `--jobs 1`); figures are in `results/gridsearch_v2/plots/`
 (`reduction_<dataset>.png`, `tradeoff_<dataset>.png`). Method and test choices are explained in

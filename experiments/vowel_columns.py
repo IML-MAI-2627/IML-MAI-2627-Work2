@@ -2,7 +2,7 @@
 
 (A) only the 10 numeric features, (B) A + Sex (the current preprocessing, DEFAULT_DROP),
 (C) B + Speaker_Number. Only the dropped columns change; the kNN is the best vowel kNN of
-grid v2 (read from winners.json). Writes a Markdown report and the per-fold accuracies.
+the grid search (read from winners.json). Writes a Markdown report and the per-fold accuracies.
 
 Run from the project root:  python experiments/vowel_columns.py
 """
@@ -37,10 +37,10 @@ ALPHA = 0.05
 
 
 def best_vowel_knn(results: Path) -> dict:
-    """Parameters of the best vowel kNN of grid v2."""
+    """Parameters of the best vowel kNN of the grid search."""
     path = results / "winners.json"
     if not path.exists():
-        raise FileNotFoundError(f"{path} not found: run grid_search_v2.py --stage evaluate first")
+        raise FileNotFoundError(f"{path} not found: run grid_search.py --stage evaluate first")
     return dict(json.loads(path.read_text())[DATASET]["knn"]["params"])
 
 
@@ -122,7 +122,7 @@ def report(params: dict, accuracy: pd.DataFrame, storage: pd.DataFrame) -> str:
     return "\n\n".join(
         [
             "# vowel: which columns to keep",
-            f"Best vowel kNN of grid v2: `{params}`. Only the dropped columns change.",
+            f"Best vowel kNN of the grid search: `{params}`. Only the dropped columns change.",
             md_table(summary),
             f"Friedman + Iman-Davenport over the {len(accuracy)} folds: "
             f"F_F = {friedman.iman_davenport:.3f}, p = {p:.4g} ({verdict} at alpha = {ALPHA}).",
@@ -135,7 +135,7 @@ def report(params: dict, accuracy: pd.DataFrame, storage: pd.DataFrame) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--results", type=Path, default=config.RESULTS_DIR / "gridsearch_v2")
+    parser.add_argument("--results", type=Path, default=config.RESULTS_DIR / "gridsearch")
     parser.add_argument("--out", type=Path, default=config.RESULTS_DIR / "vowel_columns")
     args = parser.parse_args(argv)
 
