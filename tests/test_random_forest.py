@@ -281,8 +281,8 @@ def test_rf_rejects_incompatible_reduction_params():
     with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
         RandomForest({"reduction": "del", "version": 2})
 
-    with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
-        RandomForest({"reduction": "eenth", "version": 2})
+    with pytest.raises(ValueError, match="Unknown parameter 'version' for ENNTH"):
+        RandomForest({"reduction": "ennth", "version": 2})
 
 
 def test_rf_rejects_reduction_params_without_reduction():

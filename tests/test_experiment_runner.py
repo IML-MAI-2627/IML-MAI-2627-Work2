@@ -270,6 +270,8 @@ def test_save_results_uses_required_csv_schema(tmp_path):
         "reduction_time",
         "macro_f1",
         "confusion_matrix",
+        "fit_time",
+        "predict_time",
     }
     assert tuple(rows[0].keys()) == experiment_runner.CSV_COLUMNS
 
@@ -280,6 +282,8 @@ def test_save_results_uses_required_csv_schema(tmp_path):
     assert rows[0]["n_correct"] == "2"
     assert rows[0]["n_incorrect"] == "2"
     assert rows[0]["storage"] == "100.0"
+    assert rows[0]["fit_time"] == "0.0"
+    assert rows[0]["predict_time"] == "0.0"
     matrix = experiment_runner.parse_confusion_matrix(rows[0]["confusion_matrix"])
     assert matrix.tolist() == [[2, 0], [2, 0]]
 

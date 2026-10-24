@@ -114,11 +114,11 @@ def test_parse_params_reduction_adds_exclusive_parameters():
     assert knn_drop.params["version"] == 4
     assert "threshold" not in knn_drop.params
 
-    # EENTh: adds threshold (default 0.0)
-    knn_eenth = KNN({"reduction": "eenth", "threshold": 0.6})
-    assert knn_eenth.params["reduction"] == "eenth"
-    assert knn_eenth.params["threshold"] == 0.6
-    assert "version" not in knn_eenth.params
+    # ENNTH: adds threshold (default 0.0)
+    knn_ennth = KNN({"reduction": "ennth", "threshold": 0.6})
+    assert knn_ennth.params["reduction"] == "ennth"
+    assert knn_ennth.params["threshold"] == 0.6
+    assert "version" not in knn_ennth.params
 
     # DEL: neither version nor threshold
     knn_del = KNN({"reduction": "del"})
@@ -140,8 +140,8 @@ def test_parse_params_reduction_rejects_incompatible_parameters():
     with pytest.raises(ValueError, match="Unknown parameter 'threshold' for DROP"):
         KNN({"reduction": "drop", "threshold": 0.5})
 
-    with pytest.raises(ValueError, match="Unknown parameter 'version' for EENTh"):
-        KNN({"reduction": "eenth", "version": 2})
+    with pytest.raises(ValueError, match="Unknown parameter 'version' for ENNTH"):
+        KNN({"reduction": "ennth", "version": 2})
 
     with pytest.raises(ValueError, match="Parameters.*are not allowed for DEL"):
         KNN({"reduction": "del", "version": 2})

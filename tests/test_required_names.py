@@ -38,7 +38,7 @@ def test_kNNAlgorithm_matches_adapter(fold):
     "reduction, options",
     [
         ("fcnn", {"version": 1}),
-        ("eenth", {"threshold": 0.5}),
+        ("ennth", {"threshold": 0.5}),
         ("drop", {"version": 3}),
         ("del", {}),
     ],

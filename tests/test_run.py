@@ -215,7 +215,7 @@ def test_run_rejects_incompatible_reduction_params(tmp_path, require_datasets):
             "--out",
             str(out_file),
             "--reduction",
-            "eenth",
+            "ennth",
             "--version",
             "2",
         ],
@@ -224,7 +224,7 @@ def test_run_rejects_incompatible_reduction_params(tmp_path, require_datasets):
     )
 
     assert result.returncode != 0
-    assert "Unknown parameter 'version' for EENTh" in result.stderr
+    assert "Unknown parameter 'version' for ENNTH" in result.stderr
 
 
 def test_run_knn_with_del_reduction(tmp_path, require_datasets):
