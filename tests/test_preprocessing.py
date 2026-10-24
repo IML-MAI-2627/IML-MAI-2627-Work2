@@ -5,7 +5,14 @@ import pytest
 
 import config
 from arff_parser import TestMatrix, TrainMatrix, load_fold
-from preprocessing import DEFAULT_DROP, Preprocessor, preprocess_fold, reduce_preprocessed
+from models.knn.knn import KNN
+from preprocessing import (
+    DEFAULT_DROP,
+    Preprocessor,
+    preprocess_fold,
+    reduce_preprocessed,
+    remove_duplicate_rows,
+)
 
 TRAIN_ROWS = [
     [0.0, 5.0, "red", "S"],
@@ -203,6 +210,47 @@ def test_no_leakage_stats_do_not_depend_on_test(train, make_data):
         assert not np.array_equal(old, new)
 
 
+# ---------- drop_duplicate_rows (sensitivity analysis only) ----------
+
+DUP_ROWS = TRAIN_ROWS + [
+    [0.0, 5.0, "red", "S"],  # exact copy of row 0 (same class): removed
+    [10.0, 5.0, "blue", "L"],  # same attributes as row 1 but another class: kept
+    [None, 5.0, "red", None],  # missing cells ...
+    [None, 5.0, "red", None],  # ... and its exact copy: removed
+]
+DUP_Y = TRAIN_Y + ["no", "no", "yes", "yes"]
+
+
+def test_remove_duplicate_rows_keeps_first_and_label_conflicts(make_data):
+    data = make_data(TrainMatrix, DUP_ROWS, DUP_Y)
+    out, kept = remove_duplicate_rows(data)
+    assert kept.tolist() == [0, 1, 2, 3, 5, 6]
+    assert out.y.tolist() == [DUP_Y[i] for i in kept]
+    assert isinstance(out, TrainMatrix)
+
+
+def test_drop_duplicate_rows_changes_only_the_train(make_data):
+    train = make_data(TrainMatrix, DUP_ROWS, DUP_Y)
+    test = make_data(TestMatrix, DUP_ROWS, DUP_Y)  # the test has copies too: never touched
+    prep = Preprocessor(drop_duplicate_rows=True)
+    out_train = prep.fit_transform(train)
+    assert prep.n_duplicates_removed_ == 2
+    assert len(out_train.y) == len(DUP_ROWS) - 2
+    out_test = prep.transform(test)
+    assert len(out_test.y) == len(DUP_ROWS)
+    # the statistics come from the deduplicated rows, with fit alone too
+    assert prep.mean_[0] == pytest.approx(6.0)  # column a: 0, 10, 4, 6, 10
+    assert Preprocessor().fit(train).mean_[0] == pytest.approx(5.0)  # with the copy of row 0
+    assert Preprocessor(drop_duplicate_rows=True).fit(train).mean_[0] == pytest.approx(6.0)
+
+
+def test_drop_duplicate_rows_is_off_by_default(make_data):
+    train = make_data(TrainMatrix, DUP_ROWS, DUP_Y)
+    prep = Preprocessor()
+    assert len(prep.fit_transform(train).y) == len(DUP_ROWS)
+    assert prep.n_duplicates_removed_ == 0
+
+
 # ---------- real-data tests (skip if datasets/ is empty) ----------
 
 
@@ -328,3 +376,41 @@ def test_reduce_preprocessed_helper(train):
     reducer = DELReduction(k=1)
     reduced = reduce_preprocessed(prep, reducer)
     assert reduced.X_num.shape[0] <= prep.X_num.shape[0]
+
+
+def _splice_fold0():
+    paths = config.fold_paths("splice", 0)
+    if not all(p.exists() for p in paths):
+        pytest.skip("splice ARFF files not in datasets/")
+    return load_fold("splice", 0)
+
+
+def test_drop_duplicate_rows_false_changes_nothing_on_a_real_fold():
+    train_raw, test_raw = _splice_fold0()
+    default, explicit = Preprocessor(), Preprocessor(drop_duplicate_rows=False)
+    a_train, b_train = default.fit_transform(train_raw), explicit.fit_transform(train_raw)
+    a_test, b_test = default.transform(test_raw), explicit.transform(test_raw)
+    for a, b in ((a_train, b_train), (a_test, b_test)):
+        np.testing.assert_array_equal(a.X_num, b.X_num)
+        np.testing.assert_array_equal(a.X_nom, b.X_nom)
+        np.testing.assert_array_equal(a.y_codes, b.y_codes)
+    params = {"k": "7", "distance": "euclidean", "voting": "inverse_distance"}
+    first = KNN(dict(params)).fit_predict(a_train, a_test).predictions
+    second = KNN(dict(params)).fit_predict(b_train, b_test).predictions
+    assert list(first) == list(second)
+
+
+def test_drop_duplicate_rows_on_splice_removes_only_exact_copies():
+    train_raw, test_raw = _splice_fold0()
+    prep = Preprocessor(drop_duplicate_rows=True)
+    train, test = prep.fit_transform(train_raw), prep.transform(test_raw)
+    full_test = Preprocessor().fit(train_raw).transform(test_raw)
+    assert len(test.y) == test_raw.n_instances
+    np.testing.assert_array_equal(test.y_codes, full_test.y_codes)
+    rows = {
+        tuple(r) + (c,) for r, c in zip(train_raw.X.tolist(), train_raw.y.tolist(), strict=True)
+    }
+    assert len(train.y) == len(rows) == train_raw.n_instances - prep.n_duplicates_removed_
+    assert prep.n_duplicates_removed_ > 0
+    kept = {tuple(r) + (c,) for r, c in zip(train.X_nom.tolist(), train.y.tolist(), strict=True)}
+    assert len(kept) == len(train.y)  # no duplicate left

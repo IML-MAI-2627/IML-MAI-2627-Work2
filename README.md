@@ -411,6 +411,28 @@ one of the grid search, caches the scores in `plots/cache/` and writes to
 (accuracy, solve time, reduction time and storage per technique for kNN, SVM and RF). `--retrain` ignores the
 cache; `--dataset` limits it to one dataset.
 
+## Duplicate rows of splice (sensitivity analysis)
+
+```bash
+python experiments/dedup_sensitivity.py
+```
+
+splice has exact duplicate rows (same sequence and class) inside every training fold. This
+script reruns the grid v2 winners of splice (best kNN, SVM, RF and the best kNN with each
+reduction technique, read from `results/gridsearch_v2/winners.json`) on the 10 folds as in the
+grid and with `Preprocessor(drop_duplicate_rows=True)`, which removes the exact copies from the
+training fold only (the test fold is never changed). It is an analysis, not an official result:
+the folds may not be modified. It checks that the run without the option reproduces the grid,
+compares both runs with Wilcoxon + Holm and measures the accuracy of the best kNN on the test
+rows that have an identical copy in their training fold.
+
+Output in `results/dedup_sensitivity/`: `splice.md` (tables and tests), `splice_folds.csv` (one
+row per model, variant and fold), `splice_free_answers.csv`, `splice_tests.csv` and
+`figures/` (CD diagrams of significant tests). Options (all flags, optional): `--results` grid
+folder with `winners.json` (default `results/gridsearch_v2`), `--out` output folder (default
+`results/dedup_sensitivity`), `--no-cache` do not keep the reduced training sets in
+`<out>/reduction_cache/` (not committed). About 15 minutes (DROP3 and DEL dominate).
+
 ## Building the delivery ZIP
 
 ```bash

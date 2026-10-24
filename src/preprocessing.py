@@ -11,12 +11,16 @@ Nominal attributes: missing -> train mode (SimpleImputer), then integer codes
 (``nominal_values``), so codes are the same in every fold.
 Each attribute stays as ONE column (needed for the HEOM overlap distance in the kNN).
 ``Preprocessed.to_onehot()`` gives the one-hot version for SVM and RF.
+
+Optional (off by default, only for the sensitivity analysis of splice): ``drop_duplicate_rows``
+removes from the TRAIN fold the rows identical to an earlier one in every attribute and the class.
+The test fold is never changed.
 """
 
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from sklearn.impute import SimpleImputer
@@ -84,14 +88,43 @@ def reduce_preprocessed(train: Preprocessed, reducer: object) -> Preprocessed:
     return train
 
 
+def remove_duplicate_rows(train: TrainMatrix) -> tuple[TrainMatrix, np.ndarray]:
+    """Train fold without the rows identical to an earlier one; also the kept row indices.
+
+    Two rows are identical when every attribute (missing cells included) and the class are equal.
+    The first appearance is kept. Rows with the same attributes and different classes are all
+    kept: they are label noise, not copies.
+    """
+    seen: set[tuple] = set()
+    kept = []
+    for i in range(train.n_instances):
+        key = (
+            tuple(None if train.missing[i, j] else train.X[i, j] for j in range(train.n_features)),
+            train.y[i],
+        )
+        if key not in seen:
+            seen.add(key)
+            kept.append(i)
+    kept = np.asarray(kept, dtype=np.int64)
+    subset = replace(train, X=train.X[kept], missing=train.missing[kept], y=train.y[kept])
+    return subset, kept
+
+
 class Preprocessor:
-    """Learns the statistics on the train fold (``fit``) and applies them (``transform``)."""
+    """Learns the statistics on the train fold (``fit``) and applies them (``transform``).
+
+    With ``drop_duplicate_rows=True``, ``fit`` and ``fit_transform`` first remove the exact
+    duplicates of the train fold (``remove_duplicate_rows``), so the statistics and the returned
+    train come from the deduplicated rows. ``transform`` never removes rows, so the test fold is
+    always complete.
+    """
 
     def __init__(
         self,
         drop: tuple[str, ...] | list[str] = (),
         max_missing: float = 0.5,
         on_missing: str = "error",
+        drop_duplicate_rows: bool = False,
     ) -> None:
         if not 0 <= max_missing <= 1:
             raise ValueError("max_missing must be between 0 and 1")
@@ -100,6 +133,7 @@ class Preprocessor:
         self.drop = tuple(drop)
         self.max_missing = max_missing
         self.on_missing = on_missing
+        self.drop_duplicate_rows = drop_duplicate_rows
         self._fitted = False
 
     @classmethod
@@ -109,6 +143,9 @@ class Preprocessor:
 
     def fit(self, train: TrainMatrix) -> Preprocessor:
         """Fit the sklearn pipelines (min/max/mean and mode) on the train fold only."""
+        return self._fit(self._training_rows(train))
+
+    def _fit(self, train: TrainMatrix) -> Preprocessor:
         unknown = [name for name in self.drop if name not in train.attribute_names]
         if unknown:
             raise ValueError(f"Columns to drop not in the data: {unknown}")
@@ -227,7 +264,17 @@ class Preprocessor:
         )
 
     def fit_transform(self, train: TrainMatrix) -> Preprocessed:
-        return self.fit(train).transform(train)
+        train = self._training_rows(train)
+        return self._fit(train).transform(train)
+
+    def _training_rows(self, train: TrainMatrix) -> TrainMatrix:
+        """The train fold, without its exact duplicates if ``drop_duplicate_rows``."""
+        self.n_duplicates_removed_ = 0
+        if not self.drop_duplicate_rows:
+            return train
+        deduplicated, kept = remove_duplicate_rows(train)
+        self.n_duplicates_removed_ = train.n_instances - len(kept)
+        return deduplicated
 
     def _numeric_block(self, data: ArffData) -> np.ndarray:
         """Kept numeric columns as floats, NaN where the value is missing."""

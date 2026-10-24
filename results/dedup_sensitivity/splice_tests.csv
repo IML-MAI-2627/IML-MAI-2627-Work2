@@ -1,0 +1,9 @@
+variant,dataset,section,question,metric,k,n_folds,means,test,statistic,p_value,significant,winner,post_hoc,figure
+full,splice,Models,kNN vs SVM vs RF,accuracy,3,10,SVM=0.9690; RF=0.9684; kNN=0.8439,Friedman + Iman-Davenport,27.0,3.814697265625e-06,True,SVM,"Nemenyi (CD=1.05): not different from best: SVM, RF",cd_splice_kNN_vs_SVM_vs_RF_accuracy.png
+full,splice,Models,kNN vs SVM vs RF: kNN vs SVM,accuracy,2,10,kNN=0.8439; SVM=0.9690,Wilcoxon signed-ranks + Holm,,0.00390625,True,SVM,raw p=0.001953,
+full,splice,Models,kNN vs SVM vs RF: kNN vs RF,accuracy,2,10,kNN=0.8439; RF=0.9684,Wilcoxon signed-ranks + Holm,,0.00390625,True,RF,raw p=0.001953,
+full,splice,Reduction,kNN reduction,accuracy,5,10,kNN+fcnn=0.8530; kNN+del=0.8492; kNN+drop=0.8482; none=0.8439; kNN+eenth=0.8166,Friedman + Iman-Davenport,6.887025595763462,0.00031785508049373817,True,kNN+fcnn,Bonferroni-Dunn vs none (CD=1.77): kNN+eenth worse,cd_splice_kNN_reduction_accuracy.png
+dedup,splice,Models,kNN vs SVM vs RF,accuracy,3,10,SVM=0.9690; RF=0.9662; kNN=0.8608,Friedman + Iman-Davenport,33.85714285714287,7.942800465809979e-07,True,SVM,"Nemenyi (CD=1.05): not different from best: SVM, RF",cd_splice_kNN_vs_SVM_vs_RF_accuracy.png
+dedup,splice,Models,kNN vs SVM vs RF: kNN vs SVM,accuracy,2,10,kNN=0.8608; SVM=0.9690,Wilcoxon signed-ranks + Holm,,0.00390625,True,SVM,raw p=0.001953,
+dedup,splice,Models,kNN vs SVM vs RF: kNN vs RF,accuracy,2,10,kNN=0.8608; RF=0.9662,Wilcoxon signed-ranks + Holm,,0.00390625,True,RF,raw p=0.001953,
+dedup,splice,Reduction,kNN reduction,accuracy,5,10,none=0.8608; kNN+fcnn=0.8533; kNN+drop=0.8505; kNN+del=0.8408; kNN+eenth=0.8398,Friedman + Iman-Davenport,3.17038539553752,0.0248841690907087,True,none,Bonferroni-Dunn vs none (CD=1.77): kNN+eenth worse,cd_splice_kNN_reduction_accuracy.png
