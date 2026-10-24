@@ -17,7 +17,7 @@ class BaseClassifier(ABC):
     reduction_time: float = 0.0
     reduction_wall_time: float = 0.0
     # Folder where reduced training sets are stored and reused (None: no cache). Set it on the
-    # instance, e.g. ``model.reduction_cache_dir = Path("results/gridsearch_v2/reduction_cache")``.
+    # instance, e.g. ``model.reduction_cache_dir = Path("results/gridsearch/reduction_cache")``.
     reduction_cache_dir: Path | None = None
     # Training (fit) time and inference (predict) time in seconds.
     fit_time: float = 0.0

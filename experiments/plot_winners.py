@@ -400,6 +400,8 @@ def format_time(seconds: float) -> str:
     """Format seconds into human-readable ns, µs, ms, or s."""
     if seconds <= 0:
         return "0 s"
+    if seconds <= 1e-10:  # the bars are floored at 1e-10 s for the log scale (kNN fit)
+        return "< 0.1 ns"
     if seconds < 1e-6:
         return f"{seconds * 1e9:.1f} ns"
     if seconds < 1e-3:
@@ -409,8 +411,38 @@ def format_time(seconds: float) -> str:
     return f"{seconds:.2f} s"
 
 
+def grid_times(results: Path, dataset: str, winners: dict) -> dict[str, dict[str, np.ndarray]]:
+    """Per-fold fit and predict times of each winner, read from the grid search CSVs.
+
+    These are the runs behind the times of the report. The cached runs of this script also
+    compute the ROC/PR scores inside ``predict``, which makes their predict times longer.
+    """
+    df = load_dataset(results, dataset)
+    times = {}
+    for key in WINNER_KEYS:
+        if key not in winners:
+            continue
+        params = {k: str(v) for k, v in winners[key]["params"].items()}
+        rows = df[
+            (df["key"] == key.split("_")[0])
+            & (df["reduction"] == params.get("reduction", "none"))
+            & df["p"].map(lambda p, w=params: all(p.get(k) == v for k, v in w.items()))
+        ].sort_values("fold")
+        if rows["config"].nunique() != 1 or len(rows) != config.N_FOLDS:
+            raise ValueError(f"{dataset} {key}: expected one configuration with 10 folds")
+        times[key] = {
+            "fit_times": rows["fit_time"].to_numpy(dtype=np.float64),
+            "predict_times": rows["predict_time"].to_numpy(dtype=np.float64),
+        }
+    return times
+
+
 def plot_timing_comparison(dataset: str, runs: dict, winners: dict, out: Path) -> None:
-    """Compare per-instance training (fit) and inference (predict) times: eager vs lazy."""
+    """Compare per-instance training (fit) and inference (predict) times: eager vs lazy.
+
+    ``runs`` maps each winner to its per-fold ``fit_times`` and ``predict_times`` (see
+    ``grid_times``).
+    """
     base_keys = [k for k in ("knn", "svm", "rf") if k in runs]
     red_keys = [k for k in ("knn_reduced", "svm_reduced", "rf_reduced") if k in runs]
     all_keys = [k for k in WINNER_KEYS if k in runs]
@@ -686,7 +718,7 @@ def main(argv: list[str] | None = None) -> None:
         plot_confusions(dataset, runs, winners, classes, out)
         plot_tradeoff(dataset, args.results, winners, out)
         plot_reduction(dataset, args.results, winners, out)
-        plot_timing_comparison(dataset, runs, winners, out)
+        plot_timing_comparison(dataset, grid_times(args.results, dataset, winners), winners, out)
         print(f"[{dataset}] plots saved to {out}")
 
 

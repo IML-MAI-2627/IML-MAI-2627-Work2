@@ -245,6 +245,13 @@ def ennth(
     n = len(train.y_codes)
     if n == 0:
         raise ValueError("training data must not be empty")
+    # The class posteriors below have one column per class, indexed by class code.
+    present = set(np.unique(train.y_codes).tolist())
+    missing = [name for code, name in enumerate(train.class_values) if code not in present]
+    if missing:
+        raise ValueError(
+            f"EENTh needs every class in the training data; missing classes: {missing}"
+        )
     k = check_k(k)
 
     dist_fn = resolve_distance(distance)
