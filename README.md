@@ -230,7 +230,7 @@ These parameters are passed as optional flags. If omitted, the model will fall b
     - `--voting` (string): Voting policy, selected from `VOTING` in `src/models/knn/voting.py`.
       Must be one of:
       - `majority`: Standard majority vote (ties go to the nearest tied neighbor).
-      - `inverse_distance`: Distance-weighted voting with epsilon smoothing for identical instances.
+      - `inverse_distance`: Each neighbor votes with weight 1/d. If some neighbors are at distance 0 (identical to the query), only they vote, with equal weight. Ties go to the nearest tied neighbor.
       Default: `majority`.
 
     - `--retention` (string): Dynamic case-base retention policy during testing, selected from `RETENTION` in `src/models/knn/retention.py`.
@@ -294,7 +294,7 @@ python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction dro
 # kNN with DEL (Decremental Encoding Length) reduction
 python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction del
 
-# kNN with FCNN rule 2 (nearest enemy) and dynamic Oblivion by Goodness retention
+# kNN with FCNN version 2 (medoid of the enemies) and dynamic Oblivion by Goodness retention
 python experiments/run.py --dataset splice --classifier knn --k 3 --reduction fcnn --version 2 --retention oblivion_by_goodness
 
 # kNN with ENNTH filtering at consensus threshold 0.6
@@ -310,8 +310,7 @@ python experiments/run.py --dataset vowel --classifier rf --n_estimators 100 --r
 python experiments/run.py --dataset splice --classifier baseline --reduction fcnn --version 1 --reduction_k 3
 ```
 
-The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
-Use `--out <path>` to select another destination.
+Each command writes `results/<classifier>_<dataset>.csv` unless `--out <path>` is given.
 
 ### Functions named in the assignment
 
@@ -400,9 +399,15 @@ histograms and PCA, splice nucleotide frequencies). Run from the project root:
 python experiments/eda.py --dataset all --fold 0 --csv
 ```
 
-Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vowel` or
-`all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
-changes the output folder.
+Output goes to `results/eda/`. It also writes `results/eda/report.md`, the only file of that
+folder that is committed: every dataset figure quoted in Section 2 of the report (ambiguity
+codes, mutual information per position, splice motifs, duplicates, vowel speakers, clipped test
+values, 1-NN accuracy) and, if `results/gridsearch/winners.json` exists, checks on the grid
+search results (fit and predict time per instance of the winners, mean ranks of the best kNN,
+SVM and RF, and the cases where the splice distances disagree). The figures and CSVs of
+`results/eda/` are not committed. `--dataset` accepts `splice`, `vowel` or `all`; `--csv` also
+saves the preprocessed fold (one-hot + `class` column); `--out` changes the output folder;
+`--results` changes the grid search folder (default `results/gridsearch`).
 
 ## Grid Search (final experiments, with and without reduction)
 
@@ -439,7 +444,7 @@ resumable: a configuration whose CSV exists is skipped, so an interrupted run ca
 started again.
 
 Each reduced training set is computed once and stored in `results/gridsearch/reduction_cache/`
-(not committed; delete it to recompute), because the best SVM and RF reuse the reductions of the
+(committed, like `results/gridsearch/plots/cache/`; delete it to recompute), because the best SVM and RF reuse the reductions of the
 best kNN. The reported times still include the reduction time measured when it was computed. The
 cache is off by default: a classifier only uses it when its `reduction_cache_dir` attribute is
 set, which `grid_search.py` does for every classifier it creates:
