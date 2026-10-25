@@ -1,19 +1,15 @@
 """Exploratory data analysis of the preprocessed datasets.
 
 Saves a few figures (and optionally the preprocessed fold as CSV), prints a summary and writes
-``report.md`` with every dataset figure quoted in the report (Section 2) that no other script
-computes: ambiguity codes, mutual information per position, splice motifs, duplicates, vowel
-speakers, test values clipped by the scaling and the 1-NN accuracy. If the official grid search
-results exist (``--results``), it also adds three checks on them: fit and predict time per
-instance of the winners, the cases where the splice distances disagree, and the mean ranks of
-the best kNN, SVM and RF.
+``report.md`` with every dataset figure quoted in the report (Section 2): ambiguity codes,
+mutual information per position, splice motifs, duplicates, vowel speakers, test values
+clipped by the scaling and the 1-NN accuracy.
 Run from the project root:  python experiments/eda.py --dataset all --fold 0
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -32,7 +28,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import config  # noqa: E402
-import stats  # noqa: E402
 from arff_parser import load_fold  # noqa: E402
 from models.knn.distances import euclidean  # noqa: E402
 from models.knn.knn_utils import kNNAlgorithm  # noqa: E402
@@ -435,97 +430,6 @@ def dataset_report(dataset: str, fold: int, train: Preprocessed) -> list[str]:
     return lines
 
 
-# ---------------------------------------------------------------------------
-# report.md: checks on the official grid search results
-# ---------------------------------------------------------------------------
-def parse_params(text: str) -> dict[str, str]:
-    return dict(kv.split("=", 1) for kv in text.split(";"))
-
-
-def base_runs(results: Path, dataset: str, model: str) -> pd.DataFrame:
-    """Per-fold rows of every configuration of one model without reduction."""
-    files = sorted((results / dataset / "base" / model).glob("*.csv"))
-    df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
-    df["p"] = df["params"].map(parse_params)
-    return df
-
-
-def per_instance(seconds: float) -> str:
-    """Time per instance in ns below 0.1 µs (the kNN fit), otherwise in µs."""
-    return f"{seconds * 1e9:.2f} ns" if seconds < 1e-7 else f"{seconds * 1e6:.1f} µs"
-
-
-def winner_runs(df: pd.DataFrame, params: dict[str, str]) -> pd.DataFrame:
-    wanted = {k: str(v) for k, v in params.items() if k != "reduction"}
-    rows = df[df["p"].map(lambda p: all(p.get(k) == v for k, v in wanted.items()))]
-    return rows.sort_values("fold")
-
-
-def results_report(results: Path, datasets: tuple[str, ...]) -> list[str]:
-    winners = json.loads((results / "winners.json").read_text())
-    resolved = results.resolve()
-    shown = resolved.relative_to(PROJECT_ROOT) if resolved.is_relative_to(PROJECT_ROOT) else results
-    lines = [f"## Checks on the grid search results (`{shown}`)", ""]
-
-    # 1. Fit and predict time per instance of the winners (Table 7). Same runs as the time per
-    # fold of the report; plots/cache is a separate run that also times the ROC scores.
-    rows, ranks = [], []
-    for dataset in datasets:
-        folds = all_folds(dataset)
-        n_train = np.array([train.n_instances for train, _ in folds], dtype=float)
-        n_test = np.array([test.n_instances for _, test in folds], dtype=float)
-        accuracy = {}
-        for model in ("knn", "svm", "rf"):
-            runs = winner_runs(
-                base_runs(results, dataset, model), winners[dataset][model]["params"]
-            )
-            fit = np.mean(runs["fit_time"].to_numpy() / n_train)
-            pred = np.mean(runs["predict_time"].to_numpy() / n_test)
-            rows.append([dataset, model, per_instance(fit), per_instance(pred)])
-            accuracy[model] = runs["accuracy"].to_numpy()
-        table = pd.DataFrame(accuracy)
-        mean_ranks = stats.mean_ranks(table)
-        ranks.append([dataset, *[f"{mean_ranks[m]:.2f}" for m in ("knn", "svm", "rf")]])
-    lines += [
-        "### Time per instance of the best models (Table 7)",
-        "",
-        "fit_time / training fold size and predict_time / test fold size, mean over the 10 folds "
-        "(base runs of the grid search).",
-        "",
-    ]
-    lines += md_table(
-        ["dataset", "model", "fit per train instance", "predict per test instance"], rows
-    )
-    lines += ["### Mean ranks of the best kNN, SVM and RF (accuracy, 10 folds)", ""]
-    lines += md_table(["dataset", "kNN", "SVM", "RF"], ranks)
-
-    # 2. Splice distances: configurations and folds where the five distances disagree.
-    if "splice" in datasets:
-        df = base_runs(results, "splice", "knn")
-        df["distance"] = df["p"].map(lambda p: p["distance"])
-        df["others"] = df["p"].map(lambda p: f"k={p['k']}, {p['voting']}, {p['retention']}")
-        table = df.pivot_table(index=["others", "fold"], columns="distance", values="n_correct")
-        differ = table[table.max(axis=1) > table.min(axis=1)]
-        means = df.groupby("distance")["accuracy"].mean()
-        n_others = df["others"].nunique()
-        lines += [
-            "### Splice: do the five distances give the same predictions?",
-            "",
-            f"- Cells (configuration x fold) where the distances disagree: {len(differ)} of "
-            f"{len(table)}; combinations of the other parameters involved: "
-            f"{differ.index.get_level_values(0).nunique()} of {n_others}.",
-            "- Mean accuracy per distance (6 decimals): "
-            + ", ".join(f"{d} {v:.6f}" for d, v in means.items())
-            + ".",
-            "",
-        ]
-        if len(differ):
-            lines += ["Correct test cases in those cells:", ""]
-            shown = differ.astype(int).reset_index()
-            lines += md_table(list(shown.columns), shown.astype(str).to_numpy().tolist())
-    return lines
-
-
 def write_report(lines: list[str], path: Path) -> None:
     # Exactly one newline at the end (the tables add a trailing blank line).
     path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
@@ -556,12 +460,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--fold", type=int, choices=range(config.N_FOLDS), default=0)
     parser.add_argument("--out", type=Path, default=config.RESULTS_DIR / "eda")
     parser.add_argument("--csv", action="store_true", help="also save the fold as CSV (one-hot)")
-    parser.add_argument(
-        "--results",
-        type=Path,
-        default=config.RESULTS_DIR / "gridsearch",
-        help="official grid search results; their checks are skipped if winners.json is missing",
-    )
     args = parser.parse_args(argv)
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -576,10 +474,6 @@ def main(argv: list[str] | None = None) -> None:
     ]
     for dataset in datasets:
         lines += run(dataset, args.fold, args.out, args.csv)
-    if (args.results / "winners.json").exists():
-        lines += results_report(args.results, tuple(datasets))
-    else:
-        print(f"  {args.results / 'winners.json'} not found: results checks skipped")
     write_report(lines, args.out / "report.md")
 
 

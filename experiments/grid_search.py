@@ -777,7 +777,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"[{dataset}] report: {args.out / dataset / 'report.md'}")
     if args.stage in ("evaluate", "all"):
         winners_path.parent.mkdir(parents=True, exist_ok=True)
-        winners_path.write_text(json.dumps(all_winners, indent=2, default=str))
+        winners_path.write_text(json.dumps(all_winners, indent=2, default=str) + "\n")
         print(f"Winners saved to {winners_path}")
 
 
