@@ -17,7 +17,8 @@ both with predefined 10-fold train/test splits in `datasets/`.
 ## Environment
 
 - Python: 3.11 (tested with 3.11.16)
-- Tested operating system: MacOS Sequoia 15.6.1 (24G90)
+- Tested operating systems: macOS Sequoia 15.6.1 (the official run of `results/`) and Linux
+  x86-64 with Python 3.13 (clean install of this ZIP: all tests pass and every command below runs).
 - Packages: only those in `requirements.txt` (pinned versions): numpy, scipy, pandas,
   scikit-learn, matplotlib, seaborn.
 - Hardware: a normal CPU is enough (no GPU). The full grid search takes about 2 hours on one
@@ -43,35 +44,43 @@ The delivery archive (`submission.zip`) contains the report PDF and the `code/` 
 
 ```text
 submission.zip
-├── report.pdf                   # Complete project report (<= 20 pages)
-└── code/                        # Executable project root
-    ├── README.md                # Operational reproduction guide for the instructor
-    ├── requirements.txt         # Pinned production dependencies (allowed libraries only)
-    ├── datasets/                # Predefined 10-fold train/test splits (Splice and Vowel)
-    ├── src/                     # Core library code
-    │   ├── config.py            # Global paths, dataset definitions, seed (42)
-    │   ├── arff_parser.py       # Reads ARFF folds into train/test matrices
-    │   ├── preprocessing.py     # Data scaling (min-max [0,1]), encoding, imputation (train fold only)
-    │   ├── experiment_runner.py # Evaluates a model on 10 folds, tracking accuracy, times, storage
-    │   ├── stats.py             # Friedman, Nemenyi, Bonferroni-Dunn, Wilcoxon, Holm tests
-    │   └── models/              # Model implementations
-    │       ├── knn/             # From-scratch pure NumPy kNN and instance reduction
-    │       │   ├── knn.py       # Main kNN classifier interface
-    │       │   ├── distances.py # Euclidean, Manhattan, Canberra, Clark, HEOM
-    │       │   ├── voting.py    # Majority and inverse-distance weighted voting
-    │       │   ├── retention.py # Never, Always, Different Class, Oblivion by Goodness
-    │       │   └── reduction.py # FCNN (v1/v2), ENNTH (mu=0, 0.5, 0.7), DROP3, DEL
-    │       ├── svm.py           # Scikit-learn Support Vector Machine adapter
-    │       ├── random_forest.py # Scikit-learn Random Forest adapter
-    │       └── majority_baseline.py # Majority baseline classifier
-    ├── experiments/             # Executable entry points for reproduction
-    │   ├── run.py               # Runs any single configuration across 10 folds
-    │   ├── eda.py               # Generates Section 2 dataset analysis & results/eda/report.md
-    │   ├── grid_search.py       # Runs the complete grids & Demšar statistical evaluations
-    │   ├── plot_winners.py      # Generates evaluation plots and CD diagrams
-    │   ├── vowel_columns.py     # Analysis on Vowel column variations
-    │   └── selection_bias.py    # Leave-one-fold-out estimation of selection bias
-    └── results/                 # Evaluation outputs (CSV metrics, test statistics, plots)
+├── report.pdf                       # Project report (20 pages)
+└── code/                            # Project root: run every command from here
+    ├── README.md                    # This file
+    ├── requirements.txt             # Pinned packages (only the ones allowed by the assignment)
+    ├── datasets/                    # Predefined 10-fold train/test ARFF files (splice, vowel), never modified
+    ├── src/                         # Library code, used by every entry point
+    │   ├── config.py                # Paths, datasets and the seed (42)
+    │   ├── arff_parser.py           # Reads a fold into TrainMatrix / TestMatrix
+    │   ├── preprocessing.py         # Preprocessor (fit on the training fold only) and Preprocessed
+    │   ├── experiment_runner.py     # Runs a classifier on the 10 folds; accuracy, times, storage, CSV
+    │   ├── stats.py                 # Friedman + Iman-Davenport, Nemenyi, Bonferroni-Dunn, Wilcoxon, Holm
+    │   └── models/
+    │       ├── classifier_base.py   # BaseClassifier: common interface of every model
+    │       ├── svm.py               # SVM (scikit-learn) and svmAlgorithm
+    │       ├── random_forest.py     # Random Forest (scikit-learn) and rfAlgorithm
+    │       ├── majority_baseline.py # Majority-class baseline
+    │       └── knn/                 # Our kNN and instance reduction (numpy only)
+    │           ├── __init__.py      # Exports kNNAlgorithm and reduction_kNNAlgorithm
+    │           ├── knn.py           # KNN classifier class (used by run.py and grid_search.py)
+    │           ├── knn_utils.py     # Neighbour search, run_kNN and kNNAlgorithm
+    │           ├── distances.py     # Euclidean, Manhattan, Canberra, Clark, HEOM
+    │           ├── voting.py        # Majority and inverse-distance voting
+    │           ├── retention.py     # Never, Always, Different Class, Oblivion by Goodness
+    │           └── reduction.py     # FCNN, ENNTh, DROP, DEL, reduction cache, reduction_kNNAlgorithm
+    ├── experiments/                 # Entry points (see "Entry points")
+    │   ├── run.py                   # One configuration on the 10 folds
+    │   ├── eda.py                   # Section 2 figures and results/eda/report.md
+    │   ├── grid_search.py           # All experiments, statistical tests and CD diagrams
+    │   ├── plot_winners.py          # Plots of the winners and results/gridsearch/timing_report.md
+    │   ├── vowel_columns.py         # Which vowel columns to keep
+    │   └── selection_bias.py        # Leave-one-fold-out estimate of the selection bias
+    ├── tests/                       # pytest tests
+    └── results/                     # Outputs of our run (see each entry point)
+        ├── eda/                     # report.md and EDA figures
+        ├── gridsearch/              # Grid search CSVs, reports, tests, winners, plots and caches
+        ├── selection_bias/
+        └── vowel_columns/
 ```
 
 ## Execution order
@@ -108,6 +117,7 @@ Each one is described below with all its options and outputs.
 All unit and integration tests are written for **`pytest`** (using pytest fixtures and parameterized test functions). Run the full test suite using:
 
 ```bash
+python -m pip install pytest   # pytest is a development tool, not in requirements.txt
 pytest
 ```
 
@@ -245,7 +255,7 @@ These parameters are passed as optional flags. If omitted, the model will fall b
     - `--voting` (string): Voting policy, selected from `VOTING` in `src/models/knn/voting.py`.
       Must be one of:
       - `majority`: Standard majority vote (ties go to the nearest tied neighbor).
-      - `inverse_distance`: Distance-weighted voting with epsilon smoothing for identical instances.
+      - `inverse_distance`: Each neighbor votes with weight 1/d. If some neighbors are at distance 0 (identical to the query), only they vote, with equal weight. Ties go to the nearest tied neighbor.
       Default: `majority`.
 
     - `--retention` (string): Dynamic case-base retention policy during testing, selected from `RETENTION` in `src/models/knn/retention.py`.
@@ -309,7 +319,7 @@ python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction dro
 # kNN with DEL (Decremental Encoding Length) reduction
 python experiments/run.py --dataset vowel --classifier knn --k 3 --reduction del
 
-# kNN with FCNN rule 2 (nearest enemy) and dynamic Oblivion by Goodness retention
+# kNN with FCNN version 2 (medoid of the enemies) and dynamic Oblivion by Goodness retention
 python experiments/run.py --dataset splice --classifier knn --k 3 --reduction fcnn --version 2 --retention oblivion_by_goodness
 
 # kNN with ENNTH filtering at consensus threshold 0.6
@@ -325,8 +335,7 @@ python experiments/run.py --dataset vowel --classifier rf --n_estimators 100 --r
 python experiments/run.py --dataset splice --classifier baseline --reduction fcnn --version 1 --reduction_k 3
 ```
 
-The commands create `results/baseline_vowel.csv` and `results/baseline_splice.csv`.
-Use `--out <path>` to select another destination.
+Each command writes `results/<classifier>_<dataset>.csv` unless `--out <path>` is given.
 
 ### Functions named in the assignment
 
@@ -341,7 +350,7 @@ from models.knn.voting import majority
 from models.random_forest import rfAlgorithm
 from models.svm import svmAlgorithm
 
-train, test, _ = load_fold("vowel", 0)  # TrainMatrix / TestMatrix, preprocessed
+train, test, _ = load_fold("vowel", 0)  # preprocessed train / test (Preprocessed)
 kNNAlgorithm(train, test, 3, heom, majority)  # optional retention function as 6th argument
 reduction_kNNAlgorithm(train, test, 3, "heom", "majority", "fcnn", version=1)
 svmAlgorithm(train, test, kernel="poly", degree=5, C=3.0)
@@ -352,59 +361,52 @@ Each returns one predicted class code per test case.
 
 ### Create a model
 
-Each classifier now inherits from the BaseClassifier class. This object-oriented design
-allows each model to validate its own hyperparameters and encapsulate its execution logic.
+Each classifier inherits from `BaseClassifier` (`src/models/classifier_base.py`), which
+validates its hyperparameters and gives every model the same interface. A model implements
+`parse_params`, `prepare_data`, `fit`, `predict` and `fit_predict`. `fit_predict` receives a
+preprocessed train/test pair and returns a `ClassificationResult` with one class code per test
+case and the number of training instances the model keeps (its storage). The runner computes the
+metrics, the times and the storage percentage, and writes the common CSV schema.
 
-The model must implement the fit_predict method, which receives a preprocessed train/test
-pair and returns its class-code predictions along with the number of training instances it
-retained. The runner calculates metrics, timing, and storage percentage, then writes the common CSV schema.
-
-This is the interface used by kNN, SVM, Random Forest, and their reduced-data variants:
+Minimal example:
 
 ```python
-from models.classifier_base import BaseClassifier
 from experiment_runner import ClassificationResult, run_experiment, save_results
+from models.classifier_base import BaseClassifier
 from preprocessing import Preprocessed
 
 
 class MyModel(BaseClassifier):
     def parse_params(self):
-        """Optional: Validate and cast hyperparameters from the CLI."""
-        # Example: self.params is populated from the command line
+        """Validate and cast the hyperparameters (and set self.reduction_instance if used)."""
         self.k = int(self.params.get("k", 3))
 
     def prepare_data(self, train: Preprocessed, test: Preprocessed):
-        """Prepare data for fit and predict, applying model-configured instance reduction."""
-        if hasattr(self, "reduction_instance") and self.reduction_instance.method != "none":
-            train = train.reduce(self.reduction_instance)
-        # Format features (e.g., train.to_onehot() or return Preprocessed)
-        return train_X, train_y, test_X, test_y
+        # Applies the configured instance reduction, if any, and records its time
+        return self.reduce_train(train), test
+
+    def fit(self, train: Preprocessed):
+        self.train_ = train
+
+    def predict(self, test: Preprocessed) -> ClassificationResult:
+        predictions = ...  # one integer class code per test row
+        return ClassificationResult(predictions=predictions, storage=len(self.train_.y_codes))
 
     def fit_predict(self, train: Preprocessed, test: Preprocessed) -> ClassificationResult:
-        """Core training and prediction logic."""
-        # 1. Prepare data (including model-level instance reduction)
-        train_X, train_y, test_X, test_y = self.prepare_data(train, test)
-        # 2. Fit model and predict
-        predictions = ...  # one integer class code per test row
-        return ClassificationResult(predictions=predictions, storage=len(train_y))
+        train, test = self.prepare_data(train, test)
+        self.fit(train)
+        return self.predict(test)
 
 
-# ---------------------------------------------------------
-# Execution (handled automatically inside run.py)
-# ---------------------------------------------------------
-params = {"k": 5}
-model_instance = MyModel(params)
-
+model = MyModel({"k": 5})
 results = run_experiment(
-    dataset="vowel",
-    classifier=model_instance.fit_predict,  # Inject the bound method
-    model_name="my_model",
-    params=params,
+    dataset="vowel", classifier=model.fit_predict, model_name="my_model", params={"k": 5}
 )
 save_results(results, "results/my_model_vowel.csv")
 ```
 
-See `docs/DECISIONS.md` for the full classifier and storage contract.
+The design decisions and their reasons are documented in `docs/DECISIONS.md` in the project
+repository, not part of the ZIP (available on request).
 
 ## EDA (Exploratory Data Analysis)
 
@@ -416,7 +418,7 @@ python experiments/eda.py --dataset all --fold 0
 
 Outputs:
 - **`results/eda/report.md`**: Text summary containing all exploratory statistics quoted in Section 2:
-  - Class frequencies and majority baseline.
+  - Class frequencies and majority-class share.
   - Ambiguity codes (IUPAC) in Splice.
   - Position-wise mutual information and canonical splice motifs (GT at 31–32, AG at 29–30).
   - Sequence duplicates and exact copies across folds (9.2% on Splice).
@@ -438,8 +440,8 @@ Outputs:
 ## Grid Search (final experiments, with and without reduction)
 
 `experiments/grid_search.py` runs every experiment of the assignment and the statistical tests
-that answer each question. The reasoning and the list of tests are in `docs/DECISIONS.md`
-("Grid search"). Run from the project root:
+that answer each question (the reasoning is in `docs/DECISIONS.md`, "Grid search", in the
+project repository, available on request). Run from the project root:
 
 ```bash
 # everything: run the grids, then the tests (both datasets)
@@ -470,7 +472,7 @@ resumable: a configuration whose CSV exists is skipped, so an interrupted run ca
 started again.
 
 Each reduced training set is computed once and stored in `results/gridsearch/reduction_cache/`
-(not committed; delete it to recompute), because the best SVM and RF reuse the reductions of the
+(included, like `results/gridsearch/plots/cache/`; delete it to recompute), because the best SVM and RF reuse the reductions of the
 best kNN. The reported times still include the reduction time measured when it was computed. The
 cache is off by default: a classifier only uses it when its `reduction_cache_dir` attribute is
 set, which `grid_search.py` does for every classifier it creates:
@@ -485,6 +487,9 @@ Output (`results/gridsearch/`):
 ```text
 results/gridsearch/
 ├── winners.json                 # parameters of the winners (used by plot_winners.py)
+├── timing_report.md             # written by plot_winners.py (Table 7, mean ranks, distance ties)
+├── reduction_cache/             # reduced training sets of our run (see above)
+├── plots/                       # written by plot_winners.py (plots/cache/: cached scores)
 └── <dataset>/
     ├── report.md                # tables and every test, per question of the assignment
     ├── tests.csv                # one row per test (question, test, p-value, winner, post-hoc)
@@ -502,9 +507,10 @@ After `--stage evaluate`:
 python experiments/plot_winners.py --results results/gridsearch
 ```
 
-It retrains the winners in `winners.json` (best kNN, SVM and RF, without and with the best
-reduction technique) on the 10 folds with per-class scores, checks that the accuracy matches
-the grid search, caches the scores in `plots/cache/`, and outputs:
+It takes the winners in `winners.json` (best kNN, SVM and RF, without and with the best
+reduction technique), loads their per-class scores from `plots/cache/` (or retrains them on the
+10 folds if the cache is missing or `--retrain` is given), warns if an accuracy differs from the
+grid search, and outputs:
 
 1. **Figures in `results/gridsearch/plots/`**:
    - `roc_pr_<dataset>.png`: ROC and Precision-Recall curves.
@@ -516,12 +522,10 @@ the grid search, caches the scores in `plots/cache/`, and outputs:
 2. **Timing & Sanity Report (`results/gridsearch/timing_report.md`)**:
    - Fit and predict time per instance for the winners (Table 7 in the report).
    - Mean ranks across 10 folds for kNN, SVM, and RF.
-   - Pairwise distance disagreement checks on Splice (e.g., verifying differences between Manhattan, Clark, and Canberra on one-hot features).
+   - On Splice, the configurations and folds where the five distances give different predictions (only through the inverse-distance weights).
 
 Options:
 - `--results`: Path to grid search directory containing `winners.json` (default `results/gridsearch`).
-- `--out`: Directory where plots are saved (default `results/gridsearch/plots`).
-- `--report`: Path where the timing report is written (default `results/gridsearch/timing_report.md`).
 - `--retrain`: Ignores cached scores and re-evaluates all winning configurations.
 - `--dataset`: Limits plotting and timing analysis to one dataset (`splice` or `vowel`).
 
@@ -554,18 +558,39 @@ grid folder (default `results/gridsearch`), `--out` output folder (default
 
 ## Implementation Guarantees and Rules
 
-- **From-Scratch kNN & Instance Reduction:** Our kNN classifier, all 5 distance metrics (`euclidean`, `manhattan`, `canberra`, `clark`, `heom`), voting rules (`majority`, `inverse_distance`), retention policies (`never`, `always`, `different_class`, `oblivion_by_goodness`), and all four instance reduction algorithms (`fcnn` versions 1 & 2, `ennth`, `drop3`, and `del`) are implemented entirely from scratch in pure NumPy. No third-party ML libraries are used in `src/models/knn/`.
+- **From-Scratch kNN & Instance Reduction:** Our kNN classifier, all 5 distance metrics (`euclidean`, `manhattan`, `canberra`, `clark`, `heom`), voting rules (`majority`, `inverse_distance`), retention policies (`never`, `always`, `different_class`, `oblivion_by_goodness`), and the instance reduction algorithms (FCNN versions 1-4, ENNTh, DROP1-5 and DEL; the experiments use FCNN 1-2, ENNTh, DROP3 and DEL) are implemented from scratch in NumPy. No third-party ML libraries are used in `src/models/knn/`.
 - **Allowed Scikit-Learn Use:** As authorized by the assignment specification and course instructions, `scikit-learn` is used strictly where permitted: for the eager baseline models (`src/models/svm.py`, `src/models/random_forest.py`) and preprocessing transformations (`src/preprocessing.py`).
 - **No Data Leakage:** Preprocessing transformations (min-max normalization, category encodings) and instance reduction selections are strictly fitted on the training split of each fold alone. Test instances are never used to compute normalization bounds or select prototypes.
-- **Deterministic Reproducibility:** Fixed random seeds (`seed = 42`) and deterministic tie-breaking (`np.argsort(kind="stable")`) are enforced throughout the pipeline.
+- **Reproducibility:** Fixed random seed (`42`) everywhere, and stable sorting (`np.argsort(kind="stable")`) in the kNN neighbour search, ENNTh, DROP and DEL. See *Reproducibility across machines* for the two exceptions.
 - **Unmodified Folds:** The original 10-fold stratified cross-validation folds in `datasets/` are read as provided and never altered.
 
-## Packaging Utility (Optional)
+## Reproducibility across machines
 
-The submission archive `submission.zip` can be inspected or rebuilt using:
+Every file in `results/` comes from one run on macOS. Running `grid_search.py --stage evaluate`,
+`eda.py`, `vowel_columns.py`, `selection_bias.py` and `plot_winners.py` on them gives the same
+numbers on any machine. Retraining from scratch (checked on Linux x86-64) also gives the same
+accuracies for every kNN and SVM configuration, every reduction on vowel, and ENNTh, DROP3 and
+DEL on splice, with two exceptions:
+
+- **FCNN on splice.** FCNN finds the nearest prototypes with `np.argpartition`, whose order among
+  equally distant neighbours depends on the CPU. On splice all distances are integers, so there
+  are many ties: recomputing the FCNN set gives 0.8407 for the best kNN instead of 0.8468, and
+  0.9624 / 0.9552 for SVM / RF on that set instead of 0.9596 / 0.9520. The committed
+  `reduction_cache/` contains the sets of our run and reproduces the reported values.
+- **Random Forest** accuracies can differ by about 0.001 between machines (0.9680 instead of
+  0.9690 on splice, 0.9788 instead of 0.9798 on vowel for the best RF).
+
+`plot_winners.py --retrain` prints a warning for these cases. Times always depend on the machine.
+
+## Building the ZIP
+
+The ZIP was built from the project repository (available on request) with:
 
 ```bash
 python scripts/make_submission.py --report path/to/report.pdf --with-results --with-tests
 ```
 
-This utility validates that `requirements.txt` contains only course-approved dependencies and verifies that `src/models/knn/` does not import any external machine learning packages.
+`scripts/make_submission.py` is not part of the ZIP. It packs only the files tracked by git, and
+before writing the ZIP it checks that `requirements.txt` only lists the allowed packages, that
+scikit-learn is only imported by the SVM, RF and preprocessing, and that `src/models/knn/` only
+imports numpy.
