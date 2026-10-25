@@ -17,7 +17,7 @@ both with predefined 10-fold train/test splits in `datasets/`.
 ## Environment
 
 - Python: 3.11 (tested with 3.11.16)
-- Tested operating system: Ubuntu 26.04.1 LTS
+- Tested operating system: MacOS Sequoia 15.6.1 (24G90)
 - Packages: only those in `requirements.txt` (pinned versions): numpy, scipy, pandas,
   scikit-learn, matplotlib, seaborn.
 - Hardware: a normal CPU is enough (no GPU). The full grid search takes about 2 hours on one
@@ -39,29 +39,45 @@ the end.
 
 ## Project structure
 
-- `datasets/` — the predefined 10-fold train/test ARFF files of `splice` and `vowel` (never modified).
-- `src/` — the library code, used by every entry point:
-    - `config.py` — paths, datasets and the seed (42).
-    - `arff_parser.py` — reads a fold into `TrainMatrix` / `TestMatrix`.
-    - `preprocessing.py` — `Preprocessor` (fit on train only: min-max to [0,1], imputation,
-      nominal codes, dropped columns) and the `Preprocessed` container.
-    - `models/` — the classifiers, all with the same interface (`BaseClassifier` in
-      `classifier_base.py`: create with a parameter dict, call `fit_predict(train, test)`):
-      `knn/` (our kNN: `knn.py`, `distances.py`, `voting.py`, `retention.py`, `reduction.py` with
-      FCNN, EENTh, DROP3 and DEL), `svm.py`, `random_forest.py`, `majority_baseline.py`.
-    - `experiment_runner.py` — runs a classifier on the 10 folds, measures accuracy, time and
-      storage, writes the results CSV.
-    - `stats.py` — Friedman + Iman-Davenport, Nemenyi, Bonferroni-Dunn, Wilcoxon, Holm.
-- `experiments/` — the entry points (see *Entry points*).
-- `scripts/make_submission.py` — builds the delivery ZIP.
-- `results/` — outputs (CSV, Markdown, PNG); the grid search results are committed in
-  `results/gridsearch/`.
-- `tests/` — pytest tests. `docs/DECISIONS.md` — every design decision and its reason.
-  `report/` — notes for the report.
+The delivery archive (`submission.zip`) contains the report PDF and the `code/` folder:
+
+```text
+submission.zip
+├── report.pdf                   # Complete project report (<= 20 pages)
+└── code/                        # Executable project root
+    ├── README.md                # Operational reproduction guide for the instructor
+    ├── requirements.txt         # Pinned production dependencies (allowed libraries only)
+    ├── datasets/                # Predefined 10-fold train/test splits (Splice and Vowel)
+    ├── src/                     # Core library code
+    │   ├── config.py            # Global paths, dataset definitions, seed (42)
+    │   ├── arff_parser.py       # Reads ARFF folds into train/test matrices
+    │   ├── preprocessing.py     # Data scaling (min-max [0,1]), encoding, imputation (train fold only)
+    │   ├── experiment_runner.py # Evaluates a model on 10 folds, tracking accuracy, times, storage
+    │   ├── stats.py             # Friedman, Nemenyi, Bonferroni-Dunn, Wilcoxon, Holm tests
+    │   └── models/              # Model implementations
+    │       ├── knn/             # From-scratch pure NumPy kNN and instance reduction
+    │       │   ├── knn.py       # Main kNN classifier interface
+    │       │   ├── distances.py # Euclidean, Manhattan, Canberra, Clark, HEOM
+    │       │   ├── voting.py    # Majority and inverse-distance weighted voting
+    │       │   ├── retention.py # Never, Always, Different Class, Oblivion by Goodness
+    │       │   └── reduction.py # FCNN (v1/v2), ENNTH (mu=0, 0.5, 0.7), DROP3, DEL
+    │       ├── svm.py           # Scikit-learn Support Vector Machine adapter
+    │       ├── random_forest.py # Scikit-learn Random Forest adapter
+    │       └── majority_baseline.py # Majority baseline classifier
+    ├── experiments/             # Executable entry points for reproduction
+    │   ├── run.py               # Runs any single configuration across 10 folds
+    │   ├── eda.py               # Generates Section 2 dataset analysis & results/eda/report.md
+    │   ├── grid_search.py       # Runs the complete grids & Demšar statistical evaluations
+    │   ├── plot_winners.py      # Generates evaluation plots and CD diagrams
+    │   ├── vowel_columns.py     # Analysis on Vowel column variations
+    │   └── selection_bias.py    # Leave-one-fold-out estimation of selection bias
+    └── results/                 # Evaluation outputs (CSV metrics, test statistics, plots)
+```
 
 ## Execution order
 
-1. `python experiments/eda.py --dataset all --fold 0` — optional, independent.
+1. `python experiments/eda.py --dataset all --fold 0` — generates `results/eda/report.md`
+   with all Section 2 statistics and EDA figures. Independent (reads raw `datasets/`).
 2. `python experiments/grid_search.py --dataset all --stage run` — the experiments
    (about 2 h); writes one CSV per configuration in `results/gridsearch/`.
 3. `python experiments/grid_search.py --dataset all --stage evaluate` — tests and reports;
@@ -79,12 +95,11 @@ step 2. `experiments/run.py` runs one configuration on its own and depends on no
 | File | Purpose | Command (from the project root) |
 |---|---|---|
 | `experiments/run.py` | One classifier and parameter set on the 10 folds | `python experiments/run.py --dataset vowel --classifier knn --k 3 --distance heom` |
-| `experiments/eda.py` | Exploratory figures and summary | `python experiments/eda.py --dataset all --fold 0` |
+| `experiments/eda.py` | Exploratory figures and statistical summary (`results/eda/report.md`) | `python experiments/eda.py --dataset all --fold 0` |
 | `experiments/grid_search.py` | All experiments and statistical tests | `python experiments/grid_search.py --dataset all --stage all` |
-| `experiments/plot_winners.py` | ROC/PR, confusion and trade-off plots of the winners | `python experiments/plot_winners.py --results results/gridsearch` |
+| `experiments/plot_winners.py` | ROC/PR, confusion, trade-off & timing plots, and Table 7 timing report | `python experiments/plot_winners.py --results results/gridsearch` |
 | `experiments/vowel_columns.py` | Which vowel columns to keep (A/B/C comparison) | `python experiments/vowel_columns.py` |
 | `experiments/selection_bias.py` | Leave-one-fold-out estimate of the selection bias | `python experiments/selection_bias.py` |
-| `scripts/make_submission.py` | Delivery ZIP | `python scripts/make_submission.py --report path/to/report.pdf` |
 
 Each one is described below with all its options and outputs.
 
@@ -391,18 +406,34 @@ save_results(results, "results/my_model_vowel.csv")
 
 See `docs/DECISIONS.md` for the full classifier and storage contract.
 
-## EDA
+## EDA (Exploratory Data Analysis)
 
-Figures and a text summary of the preprocessed datasets (class distribution, vowel
-histograms and PCA, splice nucleotide frequencies). Run from the project root:
+Extracts all dataset properties, distributions, and domain statistics cited in Section 2 of the report, and generates exploratory figures. EDA operates directly on the raw benchmark datasets without dependencies on downstream models or grid search runs. Run from the project root:
 
 ```bash
-python experiments/eda.py --dataset all --fold 0 --csv
+python experiments/eda.py --dataset all --fold 0
 ```
 
-Output goes to `results/eda/` (not committed). `--dataset` accepts `splice`, `vowel` or
-`all`; `--csv` also saves the preprocessed fold (one-hot + `class` column); `--out`
-changes the output folder.
+Outputs:
+- **`results/eda/report.md`**: Text summary containing all exploratory statistics quoted in Section 2:
+  - Class frequencies and majority baseline.
+  - Ambiguity codes (IUPAC) in Splice.
+  - Position-wise mutual information and canonical splice motifs (GT at 31–32, AG at 29–30).
+  - Sequence duplicates and exact copies across folds (9.2% on Splice).
+  - Speaker breakdown and nearest-neighbor speaker overlap (98.2%) on Vowel.
+  - Min-max scaling range clipping statistics.
+  - Baseline 1-NN accuracy.
+- **Figures in `results/eda/`**:
+  - `splice_fold0_classes.png`: Class distributions for Splice.
+  - `splice_fold0_positions.png`: Nucleotide frequency per position and class (Figure 1 in report).
+  - `vowel_fold0_classes.png`: Class distributions for Vowel.
+  - `vowel_fold0_hist.png`: Feature distributions per acoustic attribute.
+  - `vowel_fold0_pca.png`: 2D PCA projection of the vowel space.
+- **Options**:
+  - `--dataset`: `splice`, `vowel`, or `all` (default `all`).
+  - `--fold`: Index of the fold to analyze (default `0`).
+  - `--csv`: Also saves the preprocessed fold as CSV (one-hot encoded).
+  - `--out`: Changes the output directory (default `results/eda`).
 
 ## Grid Search (final experiments, with and without reduction)
 
@@ -463,7 +494,7 @@ results/gridsearch/
     └── reduction/<model>/*.csv  # one CSV per configuration with reduction
 ```
 
-### Plots of the winners (ROC, PR, confusion matrices, trade-offs)
+### Plots of the winners (ROC, PR, confusion matrices, trade-offs, timings)
 
 After `--stage evaluate`:
 
@@ -472,12 +503,27 @@ python experiments/plot_winners.py --results results/gridsearch
 ```
 
 It retrains the winners in `winners.json` (best kNN, SVM and RF, without and with the best
-reduction technique) on the 10 folds with per-class scores, checks that the accuracy is the
-one of the grid search, caches the scores in `plots/cache/` and writes to
-`results/gridsearch/plots/`: `roc_pr_<dataset>.png`, `confusion_<dataset>.png` and
-`tradeoff_<dataset>.png` (accuracy vs storage and vs solve time) and `reduction_<dataset>.png`
-(accuracy, solve time, reduction time and storage per technique for kNN, SVM and RF). `--retrain` ignores the
-cache; `--dataset` limits it to one dataset.
+reduction technique) on the 10 folds with per-class scores, checks that the accuracy matches
+the grid search, caches the scores in `plots/cache/`, and outputs:
+
+1. **Figures in `results/gridsearch/plots/`**:
+   - `roc_pr_<dataset>.png`: ROC and Precision-Recall curves.
+   - `confusion_<dataset>.png`: Multiclass confusion matrices.
+   - `tradeoff_<dataset>.png`: Accuracy vs storage and accuracy vs solve time.
+   - `reduction_<dataset>.png`: Accuracy, solve time, reduction time, and storage per reduction technique across models.
+   - `timing_<dataset>.png`: Fit and predict wall-clock times per sample across models.
+
+2. **Timing & Sanity Report (`results/gridsearch/timing_report.md`)**:
+   - Fit and predict time per instance for the winners (Table 7 in the report).
+   - Mean ranks across 10 folds for kNN, SVM, and RF.
+   - Pairwise distance disagreement checks on Splice (e.g., verifying differences between Manhattan, Clark, and Canberra on one-hot features).
+
+Options:
+- `--results`: Path to grid search directory containing `winners.json` (default `results/gridsearch`).
+- `--out`: Directory where plots are saved (default `results/gridsearch/plots`).
+- `--report`: Path where the timing report is written (default `results/gridsearch/timing_report.md`).
+- `--retrain`: Ignores cached scores and re-evaluates all winning configurations.
+- `--dataset`: Limits plotting and timing analysis to one dataset (`splice` or `vowel`).
 
 ## vowel columns
 
@@ -506,98 +552,20 @@ dataset and model (kNN, SVM, RF, without reduction). Writes `selection_bias.md` 
 grid folder (default `results/gridsearch`), `--out` output folder (default
 `results/selection_bias`). About 3 s.
 
-## Building the delivery ZIP
+## Implementation Guarantees and Rules
+
+- **From-Scratch kNN & Instance Reduction:** Our kNN classifier, all 5 distance metrics (`euclidean`, `manhattan`, `canberra`, `clark`, `heom`), voting rules (`majority`, `inverse_distance`), retention policies (`never`, `always`, `different_class`, `oblivion_by_goodness`), and all four instance reduction algorithms (`fcnn` versions 1 & 2, `ennth`, `drop3`, and `del`) are implemented entirely from scratch in pure NumPy. No third-party ML libraries are used in `src/models/knn/`.
+- **Allowed Scikit-Learn Use:** As authorized by the assignment specification and course instructions, `scikit-learn` is used strictly where permitted: for the eager baseline models (`src/models/svm.py`, `src/models/random_forest.py`) and preprocessing transformations (`src/preprocessing.py`).
+- **No Data Leakage:** Preprocessing transformations (min-max normalization, category encodings) and instance reduction selections are strictly fitted on the training split of each fold alone. Test instances are never used to compute normalization bounds or select prototypes.
+- **Deterministic Reproducibility:** Fixed random seeds (`seed = 42`) and deterministic tie-breaking (`np.argsort(kind="stable")`) are enforced throughout the pipeline.
+- **Unmodified Folds:** The original 10-fold stratified cross-validation folds in `datasets/` are read as provided and never altered.
+
+## Packaging Utility (Optional)
+
+The submission archive `submission.zip` can be inspected or rebuilt using:
 
 ```bash
-python scripts/make_submission.py --report path/to/report.pdf
+python scripts/make_submission.py --report path/to/report.pdf --with-results --with-tests
 ```
 
-Creates `dist/submission.zip` with `report.pdf` at the root and the project under `code/`
-(README, requirements, `src/`, `experiments/`, `datasets/`), as the course instructions ask.
-Only files tracked by git are packed. It fails if `requirements.txt` lists a package outside the
-allowed ones, if any packed file imports one, if scikit-learn is imported outside the SVM, RF and
-preprocessing, or if the kNN / reduction (`src/models/knn/`) imports anything but numpy. Options: `--with-results` (committed results),
-`--with-tests` (tests, need pytest), `--draft` (no report, for a dry run), `--out <zip>`.
-
----
-
-## Development (team)
-
-### One-time setup
-
-After the basic setup above, every team member runs once:
-
-```bash
-pip install -r requirements-dev.txt
-pre-commit install
-```
-
-What gets installed:
-
-| Command                               | Installs                                                | Purpose                                                                                                                               |
-|---------------------------------------|---------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `pip install -r requirements.txt`     | numpy, scipy, pandas, scikit-learn, matplotlib, seaborn | Packages allowed by the assignment; the only ones the final code may use.                                                             |
-| `pip install -r requirements-dev.txt` | ruff, pytest, pre-commit                                | Development tools only (lint/format, tests, git hooks). Not needed to run the experiments.                                            |
-| `pre-commit install`                  | A git hook in `.git/hooks/`                             | Runs the checks below automatically on every `git commit`. The first commit downloads the hook environments, so it can take a minute. |
-
-The pre-commit hooks:
-
-- `ruff` and `ruff format`: lint and format the code.
-- Block files larger than 2 MB (avoids committing results or data by accident).
-- Fix missing end-of-file newlines and trailing whitespace.
-- Detect leftover merge-conflict markers.
-- Refuse commits made directly on `main`.
-
-If a hook modifies files, the commit is aborted: review the changes, `git add` them
-and commit again.
-
-### Checks
-
-Run locally before pushing (the same checks run in GitHub Actions on every pull request):
-
-```bash
-ruff check .
-ruff format --check .
-pytest -q
-pre-commit run --all-files
-```
-
-### Workflow
-
-1. Pick an issue and assign it to yourself: comment `request` on it (see Automation).
-2. Create a branch from an up-to-date `main`:
-
-```bash
-   git switch main && git pull
-   git switch -c feat/<short-name>
-```
-
-3. Commit small, focused changes. The pre-commit hooks run automatically.
-4. Push and open a pull request that references the issue (`Closes #n`).
-5. CI must pass before merging. Asking a teammate to take a look is welcome but not required.
-
-`main` is protected: do not push to it directly.
-
-### Rules of the project
-
-- The kNN is implemented from scratch (no ML libraries in that part).
-- scikit-learn is used for SVM, Random Forest and preprocessing. The kNN and the
-  instance reduction are our own code.
-- Never modify the dataset folds in `datasets/`.
-- No data leakage: normalization ranges and any statistic are computed on the
-  training set of each fold only.
-- Use fixed random seeds so results are reproducible.
-- Keep this README up to date when the way to install or run the project changes.
-
-### Automation (GitHub Actions)
-
-| What                  | When                        | Behaviour                                                                                                                                                                                                    |
-|-----------------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **CI**                | Every pull request          | Installs dependencies with Python 3.11, runs `ruff` and `pytest`. Required to merge.                                                                                                                         |
-| **PR checks**         | Every pull request          | Warns (red check, not blocking) if the description does not link an issue. Adds labels by folder (`knn`, `reduction`, `models`, `stats`, `report`, `infra`) and a size label (`size/S`, `size/M`, `size/L`). |
-| **Stale PR reminder** | Weekdays                    | Comments on pull requests with no activity for 2 days. Never closes anything. Add the `wip` label or use a draft PR to be ignored.                                                                           |
-| **Daily digest**      | Weekdays, 09:00 (Spain)     | Updates the "Team digest (automated)" issue with open PRs and the current milestone. Adds a comment mentioning people only when a PR is stalled or a milestone is due within 2 days.                         |
-| **Self-assign**       | When commenting on an issue | Comment `request` (or `/request`, `/assign`) to assign the issue to yourself, `/unassign` to remove yourself. The comment must contain only that word.                                                       |
-
-Milestones: M1 base (9 Oct), M2 kNN and models (16 Oct), M3 reduction and
-experiments (21 Oct), M4 report (25 Oct).
+This utility validates that `requirements.txt` contains only course-approved dependencies and verifies that `src/models/knn/` does not import any external machine learning packages.
